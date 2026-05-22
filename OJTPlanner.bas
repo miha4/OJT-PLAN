@@ -24,6 +24,7 @@ Private Enum GroupIdx
 End Enum
 
 Public Sub Build_OJT_Plan()
+    Dim errMsg As String
     Dim trackerWb As Workbook
     Dim plannerWb As Workbook
     Dim wsPlan As Worksheet
@@ -33,13 +34,14 @@ Public Sub Build_OJT_Plan()
     Dim g As Variant
     Dim i As Long
 
-    On Error GoTo Cleanup
+    On Error GoTo EH
     Application.ScreenUpdating = False
     Application.EnableEvents = False
 
     Set plannerWb = ThisWorkbook
     trackerPath = GetTrackerPath(plannerWb.Worksheets(SETTINGS_SHEET))
     Set groups = LoadGroups(plannerWb.Worksheets(SETTINGS_SHEET))
+    If groups.Count = 0 Then Err.Raise 9001, , "V Nastavitve (vrstica 3, od stolpca C naprej) ni nobene skupine."
 
     EnsurePlanSheet plannerWb
     Set wsPlan = plannerWb.Worksheets(PLAN_SHEET)
@@ -53,15 +55,25 @@ Public Sub Build_OJT_Plan()
         nextOutRow = CopyGroupToPlan(trackerWb.Worksheets(CStr(g(giSrcSheetName))), wsPlan, g, nextOutRow)
     Next i
 
+
 Cleanup:
     On Error Resume Next
     If Not trackerWb Is Nothing Then trackerWb.Close SaveChanges:=False
     Application.EnableEvents = True
     Application.ScreenUpdating = True
+    Application.StatusBar = False
     On Error GoTo 0
+    Exit Sub
+
+EH:
+    errMsg = "Planiraj_OJT napaka " & Err.Number & ": " & Err.Description
+    Debug.Print errMsg
+    MsgBox errMsg, vbCritical
+    Resume Cleanup
 End Sub
 
 Public Sub Planiraj_OJT()
+    Dim errMsg As String
     Dim trackerWb As Workbook
     Dim plannerWb As Workbook
     Dim wsPlan As Worksheet
@@ -73,7 +85,7 @@ Public Sub Planiraj_OJT()
     Dim i As Long
     Dim g As Variant
 
-    On Error GoTo Cleanup
+    On Error GoTo EH
     Application.ScreenUpdating = False
     Application.EnableEvents = False
 
@@ -81,6 +93,7 @@ Public Sub Planiraj_OJT()
     Set wsSettings = plannerWb.Worksheets(SETTINGS_SHEET)
     trackerPath = GetTrackerPath(wsSettings)
     Set groups = LoadGroups(wsSettings)
+    If groups.Count = 0 Then Err.Raise 9001, , "V Nastavitve (vrstica 3, od stolpca C naprej) ni nobene skupine."
     Set thresholds = LoadThresholds(wsSettings)
 
     EnsurePlanSheet plannerWb
@@ -105,12 +118,21 @@ Public Sub Planiraj_OJT()
     WriteAssignments wsPlan, assignments
     MsgBox "Zaključeno. Dodelitev: " & assignments.Count, vbInformation
 
+
 Cleanup:
     On Error Resume Next
     If Not trackerWb Is Nothing Then trackerWb.Close SaveChanges:=False
     Application.EnableEvents = True
     Application.ScreenUpdating = True
+    Application.StatusBar = False
     On Error GoTo 0
+    Exit Sub
+
+EH:
+    errMsg = "Planiraj_OJT napaka " & Err.Number & ": " & Err.Description
+    Debug.Print errMsg
+    MsgBox errMsg, vbCritical
+    Resume Cleanup
 End Sub
 
 Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Worksheet, ByVal g As Variant, ByVal thresholds As Object, ByRef assignments As Collection)
@@ -282,7 +304,9 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
 End Function
 
 Private Function OpenTrackerWorkbook(ByVal trackerPath As String) As Workbook
+    Debug.Print "[OJT] Odpiram tracker: "; trackerPath
     Set OpenTrackerWorkbook = Workbooks.Open(trackerPath, ReadOnly:=True)
+    Debug.Print "[OJT] Tracker odprt: "; OpenTrackerWorkbook.Name
 End Function
 
 Private Function GetTrackerPath(ByVal wsSettings As Worksheet) As String
@@ -297,6 +321,7 @@ Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
 
     c = SETTINGS_FIRST_GROUP_COL
     Do While Len(Trim$(CStr(wsSettings.Cells(SETTINGS_GROUP_ROW, c).Value2))) > 0
+        Debug.Print "[OJT] Group col " & c & ": " & Trim$(CStr(wsSettings.Cells(SETTINGS_GROUP_ROW, c).Value2))
         g(giGroupName) = Trim$(CStr(wsSettings.Cells(SETTINGS_GROUP_ROW, c).Value2))
         g(giSrcSheetName) = g(giGroupName)
         g(giIdCol) = CLng(Val(wsSettings.Cells(4, c).Value2))
@@ -316,6 +341,7 @@ Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
         c = c + 1
     Loop
 
+    Debug.Print "[OJT] Skupin naloženih: " & groups.Count
     Set LoadGroups = groups
 End Function
 
