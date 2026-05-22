@@ -647,12 +647,16 @@ Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
     Dim g(1 To 17) As Variant
     Dim groupName As String
     Dim warnings As String
+    Dim hasPlanToggle As Boolean
+    Dim planFlag As String
 
     lastCol = wsSettings.Cells(SETTINGS_GROUP_ROW, wsSettings.Columns.Count).End(xlToLeft).Column
     If lastCol < SETTINGS_FIRST_GROUP_COL Then
         Set LoadGroups = groups
         Exit Function
     End If
+
+    hasPlanToggle = HasAnyPlanToggle(wsSettings, lastCol)
 
     For c = SETTINGS_FIRST_GROUP_COL To lastCol
         groupName = Trim$(CStr(wsSettings.Cells(SETTINGS_GROUP_ROW, c).Value2))
@@ -666,7 +670,6 @@ Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
         Debug.Print "[OJT] Group col " & c & ": " & groupName
 
         If Not IsGroupColumnValid(wsSettings, c, warnings, groupName) Then GoTo NextCol
-        If g(giPlanEnabled) <> "DA" Then GoTo NextCol
 
         g(giGroupName) = groupName
         g(giSrcSheetName) = groupName
@@ -682,9 +685,14 @@ Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
         g(giCandIdRowStart) = CLng(Val(wsSettings.Cells(15, c).Value2))
         g(giCandIdRowEnd) = CLng(Val(wsSettings.Cells(16, c).Value2))
         g(giPlanStartCol) = ColToNum(CStr(wsSettings.Cells(17, c).Value2))
-        g(giPlanEnabled) = UCase$(Trim$(CStr(wsSettings.Cells(18, c).Value2)))
+        planFlag = UCase$(Trim$(CStr(wsSettings.Cells(18, c).Value2)))
+        g(giPlanEnabled) = planFlag
         g(giHoursRowStart) = CLng(Val(wsSettings.Cells(19, c).Value2))
         g(giHoursRowEnd) = CLng(Val(wsSettings.Cells(20, c).Value2))
+
+        If hasPlanToggle Then
+            If planFlag <> "DA" Then GoTo NextCol
+        End If
 
         groups.Add g
 NextCol:
@@ -696,6 +704,18 @@ NextCol:
 
     Debug.Print "[OJT] Skupin naloženih: " & groups.Count
     Set LoadGroups = groups
+End Function
+
+Private Function HasAnyPlanToggle(ByVal ws As Worksheet, ByVal lastCol As Long) As Boolean
+    Dim c As Long
+    Dim v As String
+    For c = SETTINGS_FIRST_GROUP_COL To lastCol
+        v = UCase$(Trim$(CStr(ws.Cells(18, c).Value2)))
+        If v = "DA" Or v = "NE" Then
+            HasAnyPlanToggle = True
+            Exit Function
+        End If
+    Next c
 End Function
 
 Private Function IsGroupColumnValid(ByVal ws As Worksheet, ByVal c As Long, ByRef warnings As String, ByVal groupName As String) As Boolean
