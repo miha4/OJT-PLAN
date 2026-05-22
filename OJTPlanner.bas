@@ -157,7 +157,7 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
 
             If availableInstructors.Count > 0 Then
                 If PromptAssignment(wsSrc, g, rowId + 1, colDate, candPhase, availableInstructors, chosenInstr, shiftCode) Then
-                    assignments.Add CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, colDate, candId, rowId + 1, chosenInstr, shiftCode, rowId)
+                    assignments.Add CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), candId, rowId + 1, chosenInstr, shiftCode, rowId)
                 End If
             End If
 NextCandidate:
@@ -283,23 +283,51 @@ End Function
 
 Private Function FindIdRow(ByVal ws As Worksheet, ByVal idValue As String) As Long
     Dim f As Range
+
+    If Len(Trim$(idValue)) = 0 Then Exit Function
+
+    On Error Resume Next
+    Set f = ws.UsedRange.Find(What:=idValue, LookIn:=xlValues, LookAt:=xlWhole)
+    On Error GoTo 0
+
+    If Not f Is Nothing Then
+        FindIdRow = f.Row
+        Exit Function
+    End If
+
     Set f = ws.Columns(1).Find(What:=idValue, LookIn:=xlValues, LookAt:=xlWhole)
     If Not f Is Nothing Then FindIdRow = f.Row
 End Function
 
 Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Worksheet, ByVal g As Variant, ByVal outRow As Long) As Long
-    Dim rng As Range
-    Dim rowsCount As Long, colsCount As Long
+    Dim idCol As Long, nameCol As Long
+    Dim rowStart As Long, rowEnd As Long
+    Dim planStartCol As Long, planEndCol As Long
+    Dim rowsCount As Long, planCols As Long
+    Dim valsId As Variant, valsName As Variant, valsPlan As Variant
+
+    idCol = CLng(g(giIdCol))
+    nameCol = idCol + 1
+    rowStart = CLng(g(giDateRow))
+    rowEnd = CLng(g(giIdRowEnd))
+    planStartCol = CLng(g(giPlanColStart))
+    planEndCol = CLng(g(giPlanColEnd))
 
     wsPlan.Cells(outRow, 1).Value2 = CStr(g(giGroupName))
     wsPlan.Cells(outRow, 1).Font.Bold = True
     outRow = outRow + 1
 
-    Set rng = wsSrc.Range(wsSrc.Cells(CLng(g(giDateRow)), CLng(g(giPlanColStart))), wsSrc.Cells(CLng(g(giIdRowEnd)), CLng(g(giPlanColEnd))))
-    rowsCount = rng.Rows.Count
-    colsCount = rng.Columns.Count
+    rowsCount = rowEnd - rowStart + 1
+    planCols = planEndCol - planStartCol + 1
 
-    wsPlan.Cells(outRow, 1).Resize(rowsCount, colsCount).Value2 = rng.Value2
+    valsId = wsSrc.Range(wsSrc.Cells(rowStart, idCol), wsSrc.Cells(rowEnd, idCol)).Value2
+    valsName = wsSrc.Range(wsSrc.Cells(rowStart, nameCol), wsSrc.Cells(rowEnd, nameCol)).Value2
+    valsPlan = wsSrc.Range(wsSrc.Cells(rowStart, planStartCol), wsSrc.Cells(rowEnd, planEndCol)).Value2
+
+    wsPlan.Cells(outRow, 1).Resize(rowsCount, 1).Value2 = valsId
+    wsPlan.Cells(outRow, 2).Resize(rowsCount, 1).Value2 = valsName
+    wsPlan.Cells(outRow, 3).Resize(rowsCount, planCols).Value2 = valsPlan
+
     CopyGroupToPlan = outRow + rowsCount + 2
 End Function
 
