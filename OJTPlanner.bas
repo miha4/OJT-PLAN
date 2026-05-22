@@ -84,6 +84,7 @@ Public Sub Planiraj_OJT()
     Dim groups As Collection
     Dim thresholds As Object
     Dim assignments As Collection
+    Dim liveHours As Object
     Dim i As Long
     Dim g As Variant
 
@@ -112,9 +113,10 @@ Public Sub Planiraj_OJT()
     Next i
 
     Set assignments = New Collection
+    Set liveHours = CreateObject("Scripting.Dictionary")
     For i = 1 To groups.Count
         g = groups(i)
-        CollectAssignments GetWorksheetOrFail(trackerWb, CStr(g(giSrcSheetName))), wsPlan, g, thresholds, assignments
+        CollectAssignments GetWorksheetOrFail(trackerWb, CStr(g(giSrcSheetName))), wsPlan, g, thresholds, assignments, liveHours
     Next i
 
     WriteAssignments wsPlan, assignments
@@ -137,7 +139,7 @@ EH:
     Resume Cleanup
 End Sub
 
-Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Worksheet, ByVal g As Variant, ByVal thresholds As Object, ByRef assignments As Collection)
+Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Worksheet, ByVal g As Variant, ByVal thresholds As Object, ByRef assignments As Collection, ByRef liveHours As Object)
     Dim rowId As Long, colDate As Long
     Dim candId As String
     Dim candPhase As Long
@@ -158,12 +160,13 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
             hoursRow = FindHoursRowById(wsSrc, g, candId)
             If hoursRow = 0 Then GoTo NextCandidate
 
-            candPhase = ResolvePhase(wsSrc, g, hoursRow, colDate, thresholds)
+            candPhase = ResolvePhaseLive(wsSrc, g, hoursRow, colDate, thresholds, liveHours, candId)
             Set availableInstructors = GetAvailableInstructors(wsSrc, g, rowId - 1, colDate, candPhase)
 
             If availableInstructors.Count > 0 Then
                 If PromptAssignment(wsSrc, g, rowId, colDate, candPhase, availableInstructors, chosenInstr, shiftCode) Then
-                    assignments.Add CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), candId, rowId, chosenInstr, shiftCode, rowId - 1)
+                    IncrementLiveHours liveHours, candId, ShiftHoursFromCode(shiftCode)
+                    assignments.Add CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), candId, rowId, chosenInstr, shiftCode, rowId - 1, CDbl(liveHours(UCase$(candId))))
                 End If
             End If
 NextCandidate:
@@ -182,21 +185,40 @@ Private Function FindHoursRowById(ByVal wsSrc As Worksheet, ByVal g As Variant, 
     Next r
 End Function
 
-Private Function ResolvePhase(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candRow As Long, ByVal colDate As Long, ByVal thresholds As Object) As Long
-    Dim totalHours As Double
-    Dim t As Variant
-    Dim reserve As Double
+Private Function ResolvePhaseLive(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candRow As Long, ByVal colDate As Long, ByVal thresholds As Object, ByRef liveHours As Object, ByVal candId As String) As Long
+    Dim key As String
+    Dim baseHours As Double
 
-    totalHours = Round(CDbl(Val(wsSrc.Cells(candRow, colDate).Value2)), 0)
-    t = thresholds(GetTrackType(CStr(g(giGroupName))))
+    key = UCase$(candId)
+    If Not liveHours.Exists(key) Then
+        baseHours = Round(CDbl(Val(wsSrc.Cells(candRow, colDate).Value2)), 0)
+        liveHours.Add key, baseHours
+    End If
+
+    ResolvePhaseLive = ResolvePhaseFromHours(CDbl(liveHours(key)), thresholds(GetTrackType(CStr(g(giGroupName)))))
+End Function
+
+Private Sub IncrementLiveHours(ByRef liveHours As Object, ByVal candId As String, ByVal addHours As Double)
+    Dim key As String
+    key = UCase$(candId)
+    If Not liveHours.Exists(key) Then liveHours.Add key, 0#
+    liveHours(key) = CDbl(liveHours(key)) + addHours
+End Sub
+
+Private Function ShiftHoursFromCode(ByVal shiftCode As String) As Double
+    ShiftHoursFromCode = 8#
+End Function
+
+Private Function ResolvePhaseFromHours(ByVal totalHours As Double, ByVal t As Variant) As Long
+    Dim reserve As Double
     reserve = 8#
 
     If totalHours < (CDbl(t(1)) + reserve) Then
-        ResolvePhase = 1
+        ResolvePhaseFromHours = 1
     ElseIf totalHours < (CDbl(t(1)) + CDbl(t(2)) - reserve) Then
-        ResolvePhase = 2
+        ResolvePhaseFromHours = 2
     Else
-        ResolvePhase = 3
+        ResolvePhaseFromHours = 3
     End If
 End Function
 
@@ -267,7 +289,7 @@ Private Sub WriteAssignments(ByVal wsPlan As Worksheet, ByVal assignments As Col
 
         If rowCand > 0 Then
             wsPlan.Cells(rowCand, CLng(a(2))).Value2 = CStr(a(7)) & "s"
-            AddOrReplaceComment wsPlan.Cells(rowCand, CLng(a(2))), "OJT: " & CStr(a(6)) & " - " & CStr(a(3))
+            AddOrReplaceComment wsPlan.Cells(rowCand, CLng(a(2))), "OJT: " & CStr(a(6)) & " - " & CStr(a(3)) & " | predvidene ure: " & CStr(a(9))
         End If
 
         If rowInstr > 0 Then
@@ -285,8 +307,8 @@ Private Sub AddOrReplaceComment(ByVal cell As Range, ByVal text As String)
     cell.AddCommentThreaded text
 End Sub
 
-Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate As Variant, ByVal colDate As Long, ByVal candId As String, ByVal candRow As Long, ByVal instrId As String, ByVal shiftCode As String, ByVal tripleStart As Long) As Variant
-    Dim a(1 To 8) As Variant
+Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate As Variant, ByVal colDate As Long, ByVal candId As String, ByVal candRow As Long, ByVal instrId As String, ByVal shiftCode As String, ByVal tripleStart As Long, ByVal liveHoursAfter As Double) As Variant
+    Dim a(1 To 9) As Variant
     a(1) = groupName
     a(2) = colDate
     a(3) = candId
@@ -295,6 +317,7 @@ Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate 
     a(6) = instrId
     a(7) = shiftCode
     a(8) = tripleStart
+    a(9) = liveHoursAfter
     CreateAssignmentItem = a
 End Function
 
