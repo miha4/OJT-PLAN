@@ -145,27 +145,42 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
     Dim availableInstructors As Collection
     Dim chosenInstr As String
     Dim shiftCode As String
+    Dim hoursRow As Long
 
     For colDate = CLng(g(giPlanColStart)) To CLng(g(giPlanColEnd))
-        For rowId = CLng(g(giCandIdRowStart)) To CLng(g(giCandIdRowEnd)) Step 3
-            candId = Trim$(CStr(wsSrc.Cells(rowId + 1, CLng(g(giIdCol))).Value2))
-            If Len(candId) = 0 Then GoTo NextCandidate
-
-            cellValue = UCase$(Trim$(CStr(wsSrc.Cells(rowId + 1, colDate).Value2)))
+        For rowId = CLng(g(giIdRowStart)) To CLng(g(giIdRowEnd))
+            cellValue = UCase$(Trim$(CStr(wsSrc.Cells(rowId, colDate).Value2)))
             If cellValue <> "XS" Then GoTo NextCandidate
 
-            candPhase = ResolvePhase(wsSrc, g, rowId + 1, colDate, thresholds)
-            Set availableInstructors = GetAvailableInstructors(wsSrc, g, rowId, colDate, candPhase)
+            candId = Trim$(CStr(wsSrc.Cells(rowId, CLng(g(giIdCol))).Value2))
+            If Len(candId) = 0 Then GoTo NextCandidate
+
+            hoursRow = FindHoursRowById(wsSrc, g, candId)
+            If hoursRow = 0 Then GoTo NextCandidate
+
+            candPhase = ResolvePhase(wsSrc, g, hoursRow, colDate, thresholds)
+            Set availableInstructors = GetAvailableInstructors(wsSrc, g, rowId - 1, colDate, candPhase)
 
             If availableInstructors.Count > 0 Then
-                If PromptAssignment(wsSrc, g, rowId + 1, colDate, candPhase, availableInstructors, chosenInstr, shiftCode) Then
-                    assignments.Add CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), candId, rowId + 1, chosenInstr, shiftCode, rowId)
+                If PromptAssignment(wsSrc, g, rowId, colDate, candPhase, availableInstructors, chosenInstr, shiftCode) Then
+                    assignments.Add CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), candId, rowId, chosenInstr, shiftCode, rowId - 1)
                 End If
             End If
 NextCandidate:
         Next rowId
     Next colDate
 End Sub
+
+
+Private Function FindHoursRowById(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candId As String) As Long
+    Dim r As Long
+    For r = CLng(g(giCandIdRowStart)) To CLng(g(giCandIdRowEnd))
+        If UCase$(Trim$(CStr(wsSrc.Cells(r, CLng(g(giIdCol))).Value2))) = UCase$(candId) Then
+            FindHoursRowById = r
+            Exit Function
+        End If
+    Next r
+End Function
 
 Private Function ResolvePhase(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candRow As Long, ByVal colDate As Long, ByVal thresholds As Object) As Long
     Dim totalHours As Double
