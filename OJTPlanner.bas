@@ -21,6 +21,8 @@ Private Enum GroupIdx
     giCandIdRowStart = 12
     giCandIdRowEnd = 13
     giPlanStartCol = 14
+    giHoursRowStart = 15
+    giHoursRowEnd = 16
 End Enum
 
 Public Sub Build_OJT_Plan()
@@ -85,6 +87,7 @@ Public Sub Planiraj_OJT()
     Dim thresholds As Object
     Dim assignments As Collection
     Dim liveHours As Object
+    Dim history As Collection
     Dim i As Long
     Dim g As Variant
 
@@ -114,12 +117,12 @@ Public Sub Planiraj_OJT()
 
     Set assignments = New Collection
     Set liveHours = CreateObject("Scripting.Dictionary")
+    Set history = New Collection
     For i = 1 To groups.Count
         g = groups(i)
-        CollectAssignments GetWorksheetOrFail(trackerWb, CStr(g(giSrcSheetName))), wsPlan, g, thresholds, assignments, liveHours
+        CollectAssignments GetWorksheetOrFail(trackerWb, CStr(g(giSrcSheetName))), wsPlan, g, thresholds, assignments, liveHours, wsPlan, history
     Next i
 
-    WriteAssignments wsPlan, assignments
     MsgBox "Zaključeno. Dodelitev: " & assignments.Count, vbInformation
 
 
@@ -139,7 +142,7 @@ EH:
     Resume Cleanup
 End Sub
 
-Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Worksheet, ByVal g As Variant, ByVal thresholds As Object, ByRef assignments As Collection, ByRef liveHours As Object)
+Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Worksheet, ByVal g As Variant, ByVal thresholds As Object, ByRef assignments As Collection, ByRef liveHours As Object, ByVal wsPlanOut As Worksheet, ByRef history As Collection)
     Dim rowId As Long, colDate As Long
     Dim candId As String
     Dim candPhase As Long
@@ -164,9 +167,16 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
             Set availableInstructors = GetAvailableInstructors(wsSrc, g, rowId - 1, colDate, candPhase)
 
             If availableInstructors.Count > 0 Then
-                If PromptAssignment(wsSrc, g, rowId, colDate, candPhase, availableInstructors, chosenInstr, shiftCode) Then
+                If PromptAssignmentUnified(wsSrc, g, rowId, colDate, candPhase, availableInstructors, chosenInstr, shiftCode, liveHours, candId) Then
                     IncrementLiveHours liveHours, candId, ShiftHoursFromCode(shiftCode)
-                    assignments.Add CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), candId, rowId, chosenInstr, shiftCode, rowId - 1, CDbl(liveHours(UCase$(candId))))
+                    Dim itm As Variant
+                    itm = CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), candId, rowId, chosenInstr, shiftCode, rowId - 1, CDbl(liveHours(UCase$(candId))))
+                    assignments.Add itm
+                    ApplySingleAssignment wsPlanOut, itm
+                    history.Add itm
+                ElseIf UCase$(chosenInstr) = "__BACK__" Then
+                    UndoLastAssignment wsPlanOut, history, liveHours
+                    chosenInstr = ""
                 End If
             End If
 NextCandidate:
@@ -174,6 +184,65 @@ NextCandidate:
     Next colDate
 End Sub
 
+
+
+Private Function PromptAssignmentUnified(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candRow As Long, ByVal colDate As Long, ByVal phase As Long, ByVal instrList As Collection, ByRef chosenInstr As String, ByRef shiftCode As String, ByRef liveHours As Object, ByVal candId As String) As Boolean
+    Dim msg As String, inputText As Variant, parts() As String
+    Dim i As Long, idx As Long
+
+    msg = "Skupina: " & CStr(g(giGroupName)) & vbCrLf & _
+          "Datum: " & Format$(wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, "dd.mm.") & vbCrLf & _
+          "Faza: " & phase & vbCrLf & _
+          "Kandidat: " & wsSrc.Cells(candRow, CLng(g(giIdCol))).Value2 & vbCrLf & _
+          "Predvidene ure: " & CStr(CDbl(liveHours(UCase$(candId)))) & vbCrLf & _
+          "Instruktorji:" & vbCrLf
+    For i = 1 To instrList.Count
+        msg = msg & i & ") " & instrList(i) & vbCrLf
+    Next i
+    msg = msg & vbCrLf & "Vnos: indeks;izmena (npr 1;A9)" & vbCrLf & "0 = preskoči, B = nazaj"
+
+    inputText = Application.InputBox(msg, "OJT dodelitev", Type:=2)
+    If inputText = False Then Exit Function
+    inputText = UCase$(Trim$(CStr(inputText)))
+    If inputText = "" Or inputText = "0" Then Exit Function
+    If inputText = "B" Then chosenInstr = "__BACK__": Exit Function
+
+    parts = Split(CStr(inputText), ";")
+    If UBound(parts) <> 1 Then MsgBox "Uporabi format indeks;izmena (npr 1;A9)", vbExclamation: Exit Function
+    idx = CLng(Val(parts(0)))
+    If idx < 1 Or idx > instrList.Count Then MsgBox "Napačen indeks inštruktorja.", vbExclamation: Exit Function
+
+    chosenInstr = CStr(instrList(idx))
+    shiftCode = Trim$(parts(1))
+    If Len(shiftCode) = 0 Then MsgBox "Manjka izmena.", vbExclamation: Exit Function
+    PromptAssignmentUnified = True
+End Function
+
+Private Sub ApplySingleAssignment(ByVal wsPlan As Worksheet, ByVal a As Variant)
+    Dim rowCand As Long, rowInstr As Long
+    rowCand = FindIdRow(wsPlan, CStr(a(3)))
+    rowInstr = FindIdRow(wsPlan, CStr(a(6)))
+    If rowCand > 0 Then
+        wsPlan.Cells(rowCand, CLng(a(2))).Value2 = CStr(a(7)) & "s"
+        AddOrReplaceComment wsPlan.Cells(rowCand, CLng(a(2))), "OJT: " & CStr(a(6)) & " - " & CStr(a(3)) & " | predvidene ure: " & CStr(a(9))
+    End If
+    If rowInstr > 0 Then
+        wsPlan.Cells(rowInstr, CLng(a(2))).Value2 = CStr(a(7)) & "i"
+        AddOrReplaceComment wsPlan.Cells(rowInstr, CLng(a(2))), "OJT: " & CStr(a(6)) & " - " & CStr(a(3))
+    End If
+End Sub
+
+Private Sub UndoLastAssignment(ByVal wsPlan As Worksheet, ByRef history As Collection, ByRef liveHours As Object)
+    Dim a As Variant, rowCand As Long, rowInstr As Long
+    If history.Count = 0 Then Exit Sub
+    a = history(history.Count)
+    history.Remove history.Count
+    rowCand = FindIdRow(wsPlan, CStr(a(3)))
+    rowInstr = FindIdRow(wsPlan, CStr(a(6)))
+    If rowCand > 0 Then wsPlan.Cells(rowCand, CLng(a(2))).ClearContents
+    If rowInstr > 0 Then wsPlan.Cells(rowInstr, CLng(a(2))).ClearContents
+    IncrementLiveHours liveHours, CStr(a(3)), -ShiftHoursFromCode(CStr(a(7)))
+End Sub
 
 Private Function FindHoursRowById(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candId As String) As Long
     Dim r As Long
@@ -398,7 +467,18 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
         wsPlan.Cells(outRow, 1).Resize(rowCount, planCols + 2).Value2 = outData
     End If
 
-    CopyGroupToPlan = outRow + rowCount + 2
+    Dim hrS As Long, hrE As Long, hrRows As Long
+    hrS = CLng(g(giHoursRowStart)): hrE = CLng(g(giHoursRowEnd))
+    If hrS > 0 And hrE >= hrS Then
+        hrRows = hrE - hrS + 1
+        wsPlan.Cells(outRow + rowCount + 1, 1).Value2 = "URE (kopija)"
+        wsPlan.Cells(outRow + rowCount + 2, 1).Resize(hrRows, 1).Value2 = wsSrc.Range(wsSrc.Cells(hrS, idCol), wsSrc.Cells(hrE, idCol)).Value2
+        wsPlan.Cells(outRow + rowCount + 2, 2).Resize(hrRows, 1).Value2 = wsSrc.Range(wsSrc.Cells(hrS, nameCol), wsSrc.Cells(hrE, nameCol)).Value2
+        wsPlan.Cells(outRow + rowCount + 2, 3).Resize(hrRows, planCols).Value2 = wsSrc.Range(wsSrc.Cells(hrS, planStartCol), wsSrc.Cells(hrE, planEndCol)).Value2
+        CopyGroupToPlan = outRow + rowCount + hrRows + 4
+    Else
+        CopyGroupToPlan = outRow + rowCount + 2
+    End If
 End Function
 
 Private Function OpenTrackerWorkbook(ByVal trackerPath As String, ByRef closeOnExit As Boolean) As Workbook
@@ -529,6 +609,8 @@ Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
         g(giCandIdRowStart) = CLng(Val(wsSettings.Cells(15, c).Value2))
         g(giCandIdRowEnd) = CLng(Val(wsSettings.Cells(16, c).Value2))
         g(giPlanStartCol) = ColToNum(CStr(wsSettings.Cells(17, c).Value2))
+        g(giHoursRowStart) = CLng(Val(wsSettings.Cells(18, c).Value2))
+        g(giHoursRowEnd) = CLng(Val(wsSettings.Cells(19, c).Value2))
 
         groups.Add g
 NextCol:
