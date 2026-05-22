@@ -5,6 +5,7 @@ Private Const SETTINGS_SHEET As String = "Nastavitve"
 Private Const PLAN_SHEET As String = "OJT Plan"
 Private Const SETTINGS_GROUP_ROW As Long = 3
 Private Const SETTINGS_FIRST_GROUP_COL As Long = 3 'C
+Private mPlanRowMap As Object
 
 Private Enum GroupIdx
     giGroupName = 1
@@ -52,6 +53,8 @@ Public Sub Build_OJT_Plan()
 
     Set trackerWb = OpenTrackerWorkbook(trackerPath, closeTrackerOnExit)
 
+    Set mPlanRowMap = CreateObject("Scripting.Dictionary")
+    Set mPlanRowMap = CreateObject("Scripting.Dictionary")
     nextOutRow = 1
     For i = 1 To groups.Count
         g = groups(i)
@@ -172,12 +175,16 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
                 If PromptAssignmentUnified(wsSrc, g, rowId, colDate, candPhase, availableInstructors, chosenInstr, shiftCode, liveHours, candId) Then
                     IncrementLiveHours liveHours, candId, ShiftHoursFromCode(shiftCode)
                     Dim itm As Variant
-                    itm = CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), candId, rowId, chosenInstr, shiftCode, rowId - 1, CDbl(liveHours(UCase$(candId))))
+                    Dim instrSrcRow As Long
+                    instrSrcRow = FindSourceRowById(wsSrc, g, chosenInstr)
+                    itm = CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), candId, rowId, chosenInstr, shiftCode, instrSrcRow, CDbl(liveHours(UCase$(candId))))
                     assignments.Add itm
                     ApplySingleAssignment wsPlanOut, itm
+                    RefreshPlanView wsPlanOut
                     history.Add itm
                 ElseIf UCase$(chosenInstr) = "__BACK__" Then
                     UndoLastAssignment wsPlanOut, history, liveHours
+                    RefreshPlanView wsPlanOut
                     chosenInstr = ""
                 End If
             End If
@@ -222,8 +229,8 @@ End Function
 
 Private Sub ApplySingleAssignment(ByVal wsPlan As Worksheet, ByVal a As Variant)
     Dim rowCand As Long, rowInstr As Long
-    rowCand = FindIdRow(wsPlan, CStr(a(3)))
-    rowInstr = FindIdRow(wsPlan, CStr(a(6)))
+    rowCand = GetPlanRowFromSource(CStr(a(1)), CLng(a(5)), wsPlan, CStr(a(3)))
+    rowInstr = GetPlanRowFromSource(CStr(a(1)), CLng(a(8)), wsPlan, CStr(a(6)))
     If rowCand > 0 Then
         wsPlan.Cells(rowCand, CLng(a(2))).Value2 = CStr(a(7)) & "s"
         AddOrReplaceComment wsPlan.Cells(rowCand, CLng(a(2))), "OJT: " & CStr(a(6)) & " - " & CStr(a(3)) & " | predvidene ure: " & CStr(a(9))
@@ -234,17 +241,41 @@ Private Sub ApplySingleAssignment(ByVal wsPlan As Worksheet, ByVal a As Variant)
     End If
 End Sub
 
+
+Private Function GetPlanRowFromSource(ByVal groupName As String, ByVal srcRow As Long, ByVal wsPlan As Worksheet, ByVal fallbackId As String) As Long
+    Dim k As String
+    If Not mPlanRowMap Is Nothing Then
+        k = groupName & "|" & CStr(srcRow)
+        If mPlanRowMap.Exists(k) Then
+            GetPlanRowFromSource = CLng(mPlanRowMap(k))
+            Exit Function
+        End If
+    End If
+    GetPlanRowFromSource = FindIdRow(wsPlan, fallbackId)
+End Function
+
 Private Sub UndoLastAssignment(ByVal wsPlan As Worksheet, ByRef history As Collection, ByRef liveHours As Object)
     Dim a As Variant, rowCand As Long, rowInstr As Long
     If history.Count = 0 Then Exit Sub
     a = history(history.Count)
     history.Remove history.Count
-    rowCand = FindIdRow(wsPlan, CStr(a(3)))
-    rowInstr = FindIdRow(wsPlan, CStr(a(6)))
+    rowCand = GetPlanRowFromSource(CStr(a(1)), CLng(a(5)), wsPlan, CStr(a(3)))
+    rowInstr = GetPlanRowFromSource(CStr(a(1)), CLng(a(8)), wsPlan, CStr(a(6)))
     If rowCand > 0 Then wsPlan.Cells(rowCand, CLng(a(2))).ClearContents
     If rowInstr > 0 Then wsPlan.Cells(rowInstr, CLng(a(2))).ClearContents
     IncrementLiveHours liveHours, CStr(a(3)), -ShiftHoursFromCode(CStr(a(7)))
 End Sub
+
+
+Private Function FindSourceRowById(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal empId As String) As Long
+    Dim r As Long
+    For r = CLng(g(giIdRowStart)) To CLng(g(giIdRowEnd))
+        If UCase$(Trim$(CStr(wsSrc.Cells(r, CLng(g(giIdCol))).Value2))) = UCase$(Trim$(empId)) Then
+            FindSourceRowById = r
+            Exit Function
+        End If
+    Next r
+End Function
 
 Private Function FindHoursRowById(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candId As String) As Long
     Dim r As Long
@@ -370,6 +401,16 @@ Private Sub WriteAssignments(ByVal wsPlan As Worksheet, ByVal assignments As Col
     Next i
 End Sub
 
+
+Private Sub RefreshPlanView(ByVal ws As Worksheet)
+    Dim prevUpd As Boolean
+    prevUpd = Application.ScreenUpdating
+    Application.ScreenUpdating = True
+    ws.Calculate
+    DoEvents
+    Application.ScreenUpdating = prevUpd
+End Sub
+
 Private Sub AddOrReplaceComment(ByVal cell As Range, ByVal text As String)
     On Error Resume Next
     cell.CommentThreaded.Delete
@@ -458,6 +499,7 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
         If Len(Trim$(CStr(wsSrc.Cells(r, idCol).Value2))) > 0 Then
             rowCount = rowCount + 1
             outData(rowCount, 1) = wsSrc.Cells(r, idCol).Value2
+            mPlanRowMap(CStr(g(giGroupName)) & "|" & CStr(r)) = outRow + rowCount - 1
             outData(rowCount, 2) = wsSrc.Cells(r, nameCol).Value2
             For c = 1 To planCols
                 outData(rowCount, c + 2) = wsSrc.Cells(r, planStartCol + c - 1).Value2
