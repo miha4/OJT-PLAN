@@ -510,6 +510,9 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
     Dim planCols As Long
     Dim rowCount As Long, r As Long, c As Long
     Dim outData() As Variant
+    Dim seenId As Object
+    Dim includeRows() As Boolean
+    Dim srcId As String
 
     idCol = CLng(g(giIdCol))
     nameCol = idCol + 1
@@ -546,8 +549,21 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
     Next c
 
     ' Podatki: samo vrstice z ID-jem (odstrani prazne vrstice)
+    ReDim includeRows(idRowStart To idRowEnd)
+    Set seenId = CreateObject("Scripting.Dictionary")
     For r = idRowStart To idRowEnd
-        If Len(Trim$(CStr(wsSrc.Cells(r, idCol).Value2))) > 0 Then
+        srcId = UCase$(Trim$(CStr(wsSrc.Cells(r, idCol).Value2)))
+        If Len(srcId) > 0 Then
+            includeRows(r) = True
+            If seenId.Exists(srcId) Then
+                includeRows(CLng(seenId(srcId))) = False ' pri podvojitvi obdrži zadnjo vrstico
+            End If
+            seenId(srcId) = r
+        End If
+    Next r
+
+    For r = idRowStart To idRowEnd
+        If includeRows(r) Then
             rowCount = rowCount + 1
             outData(rowCount, 1) = wsSrc.Cells(r, idCol).Value2
             mPlanRowMap(CStr(g(giGroupName)) & "|" & CStr(r)) = outRow + rowCount - 1
