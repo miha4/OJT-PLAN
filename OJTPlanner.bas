@@ -180,20 +180,25 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
                     Dim itm As Variant
                     Dim instrSrcRow As Long
                     instrSrcRow = FindSourceRowById(wsSrc, g, chosenInstr)
-                    itm = CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), candId, rowId, chosenInstr, shiftCode, instrSrcRow, CDbl(liveHours(UCase$(candId))), addH)
+                    itm = CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), colDate, candId, rowId, chosenInstr, shiftCode, instrSrcRow, CDbl(liveHours(UCase$(candId))), addH)
                     assignments.Add itm
                     ApplySingleAssignment wsPlanOut, itm
                     RefreshPlanView wsPlanOut
                     history.Add itm
                 ElseIf UCase$(chosenInstr) = "__BACK__" Then
-                    UndoLastAssignment wsPlanOut, history, liveHours
+                    Dim undone As Variant
+                    If UndoLastAssignment(wsPlanOut, history, liveHours, undone) Then
+                        If CStr(undone(1)) = CStr(g(giGroupName)) Then
+                            colDate = CLng(undone(3))
+                            rowId = CLng(undone(6)) - 1
+                            If rowId < CLng(g(giIdRowStart)) Then rowId = CLng(g(giIdRowStart))
+                            If colDate < CLng(g(giPlanColStart)) Then colDate = CLng(g(giPlanColStart))
+                        Else
+                            rowId = rowId - 1
+                        End If
+                    End If
                     RefreshPlanView wsPlanOut
                     chosenInstr = ""
-                    rowId = rowId - 2
-                    If rowId < CLng(g(giIdRowStart)) Then
-                        colDate = colDate - 1
-                        rowId = CLng(g(giIdRowEnd)) - 1
-                    End If
                 ElseIf UCase$(chosenInstr) = "__END__" Then
                     Exit Sub
                 End If
@@ -210,10 +215,10 @@ Private Function PromptAssignmentUnified(ByVal wsSrc As Worksheet, ByVal g As Va
     Dim i As Long, idx As Long
 
     msg = "Skupina: " & CStr(g(giGroupName)) & vbCrLf & _
-          "DATUM: " & Format$(wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, "dd.mm.") & vbCrLf & _
+          "**DATUM**: " & Format$(wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, "dd.mm.") & vbCrLf & _
           "Faza: " & phase & vbCrLf & _
-          "Kandidat: " & wsSrc.Cells(candRow, CLng(g(giIdCol))).Value2 & " - " & wsSrc.Cells(candRow, CLng(g(giIdCol)) + 1).Value2 & vbCrLf & _
-          "PREDVIDENE URE: " & CStr(CDbl(liveHours(UCase$(candId)))) & vbCrLf & _
+          "**Kandidat**: " & wsSrc.Cells(candRow, CLng(g(giIdCol))).Value2 & " - " & wsSrc.Cells(candRow, CLng(g(giIdCol)) + 1).Value2 & vbCrLf & _
+          "🔴 PREDVIDENE URE: " & CStr(CDbl(liveHours(UCase$(candId)))) & vbCrLf & _
           "Instruktorji:" & vbCrLf
     For i = 1 To instrList.Count
         msg = msg & i & ") " & instrList(i) & vbCrLf
@@ -240,15 +245,15 @@ End Function
 
 Private Sub ApplySingleAssignment(ByVal wsPlan As Worksheet, ByVal a As Variant)
     Dim rowCand As Long, rowInstr As Long
-    rowCand = GetPlanRowFromSource(CStr(a(1)), CLng(a(5)), wsPlan, CStr(a(3)))
-    rowInstr = GetPlanRowFromSource(CStr(a(1)), CLng(a(8)), wsPlan, CStr(a(6)))
+    rowCand = GetPlanRowFromSource(CStr(a(1)), CLng(a(6)), wsPlan, CStr(a(4)))
+    rowInstr = GetPlanRowFromSource(CStr(a(1)), CLng(a(9)), wsPlan, CStr(a(7)))
     If rowCand > 0 Then
-        wsPlan.Cells(rowCand, CLng(a(2))).Value2 = CStr(a(7)) & "s"
-        AddOrReplaceComment wsPlan.Cells(rowCand, CLng(a(2))), "OJT: " & CStr(a(6)) & " - " & CStr(a(3)) & " | predvidene ure: " & CStr(a(9))
+        wsPlan.Cells(rowCand, CLng(a(2))).Value2 = CStr(a(8)) & "s"
+        AddOrReplaceComment wsPlan.Cells(rowCand, CLng(a(2))), "OJT: " & CStr(a(7)) & " - " & CStr(a(4)) & " | predvidene ure: " & CStr(a(10))
     End If
     If rowInstr > 0 Then
-        wsPlan.Cells(rowInstr, CLng(a(2))).Value2 = CStr(a(7)) & "i"
-        AddOrReplaceComment wsPlan.Cells(rowInstr, CLng(a(2))), "OJT: " & CStr(a(6)) & " - " & CStr(a(3))
+        wsPlan.Cells(rowInstr, CLng(a(2))).Value2 = CStr(a(8)) & "i"
+        AddOrReplaceComment wsPlan.Cells(rowInstr, CLng(a(2))), "OJT: " & CStr(a(7)) & " - " & CStr(a(4))
     End If
 End Sub
 
@@ -265,17 +270,19 @@ Private Function GetPlanRowFromSource(ByVal groupName As String, ByVal srcRow As
     GetPlanRowFromSource = FindIdRow(wsPlan, fallbackId)
 End Function
 
-Private Sub UndoLastAssignment(ByVal wsPlan As Worksheet, ByRef history As Collection, ByRef liveHours As Object)
+Private Function UndoLastAssignment(ByVal wsPlan As Worksheet, ByRef history As Collection, ByRef liveHours As Object, ByRef undoneItem As Variant) As Boolean
     Dim a As Variant, rowCand As Long, rowInstr As Long
-    If history.Count = 0 Then Exit Sub
+    If history.Count = 0 Then Exit Function
     a = history(history.Count)
     history.Remove history.Count
-    rowCand = GetPlanRowFromSource(CStr(a(1)), CLng(a(5)), wsPlan, CStr(a(3)))
-    rowInstr = GetPlanRowFromSource(CStr(a(1)), CLng(a(8)), wsPlan, CStr(a(6)))
+    rowCand = GetPlanRowFromSource(CStr(a(1)), CLng(a(6)), wsPlan, CStr(a(4)))
+    rowInstr = GetPlanRowFromSource(CStr(a(1)), CLng(a(9)), wsPlan, CStr(a(7)))
     If rowCand > 0 Then wsPlan.Cells(rowCand, CLng(a(2))).ClearContents
     If rowInstr > 0 Then wsPlan.Cells(rowInstr, CLng(a(2))).ClearContents
-    IncrementLiveHours liveHours, CStr(a(3)), -CDbl(a(10))
-End Sub
+    IncrementLiveHours liveHours, CStr(a(4)), -CDbl(a(11))
+    undoneItem = a
+    UndoLastAssignment = True
+End Function
 
 
 Private Function FindSourceRowById(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal empId As String) As Long
@@ -407,17 +414,17 @@ Private Sub WriteAssignments(ByVal wsPlan As Worksheet, ByVal assignments As Col
 
     For i = 1 To assignments.Count
         a = assignments(i)
-        rowCand = FindIdRow(wsPlan, CStr(a(3)))
-        rowInstr = FindIdRow(wsPlan, CStr(a(6)))
+        rowCand = FindIdRow(wsPlan, CStr(a(4)))
+        rowInstr = FindIdRow(wsPlan, CStr(a(7)))
 
         If rowCand > 0 Then
-            wsPlan.Cells(rowCand, CLng(a(2))).Value2 = CStr(a(7)) & "s"
-            AddOrReplaceComment wsPlan.Cells(rowCand, CLng(a(2))), "OJT: " & CStr(a(6)) & " - " & CStr(a(3)) & " | predvidene ure: " & CStr(a(9))
+            wsPlan.Cells(rowCand, CLng(a(2))).Value2 = CStr(a(8)) & "s"
+            AddOrReplaceComment wsPlan.Cells(rowCand, CLng(a(2))), "OJT: " & CStr(a(7)) & " - " & CStr(a(4)) & " | predvidene ure: " & CStr(a(10))
         End If
 
         If rowInstr > 0 Then
-            wsPlan.Cells(rowInstr, CLng(a(2))).Value2 = CStr(a(7)) & "i"
-            AddOrReplaceComment wsPlan.Cells(rowInstr, CLng(a(2))), "OJT: " & CStr(a(6)) & " - " & CStr(a(3))
+            wsPlan.Cells(rowInstr, CLng(a(2))).Value2 = CStr(a(8)) & "i"
+            AddOrReplaceComment wsPlan.Cells(rowInstr, CLng(a(2))), "OJT: " & CStr(a(7)) & " - " & CStr(a(4))
         End If
     Next i
 End Sub
@@ -440,18 +447,19 @@ Private Sub AddOrReplaceComment(ByVal cell As Range, ByVal text As String)
     cell.AddCommentThreaded text
 End Sub
 
-Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate As Variant, ByVal colDate As Long, ByVal candId As String, ByVal candRow As Long, ByVal instrId As String, ByVal shiftCode As String, ByVal tripleStart As Long, ByVal liveHoursAfter As Double, ByVal hoursAdded As Double) As Variant
-    Dim a(1 To 10) As Variant
+Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate As Variant, ByVal colDate As Long, ByVal srcColDate As Long, ByVal candId As String, ByVal candRow As Long, ByVal instrId As String, ByVal shiftCode As String, ByVal tripleStart As Long, ByVal liveHoursAfter As Double, ByVal hoursAdded As Double) As Variant
+    Dim a(1 To 11) As Variant
     a(1) = groupName
     a(2) = colDate
-    a(3) = candId
-    a(4) = planDate
-    a(5) = candRow
-    a(6) = instrId
-    a(7) = shiftCode
-    a(8) = tripleStart
-    a(9) = liveHoursAfter
-    a(10) = hoursAdded
+    a(3) = srcColDate
+    a(4) = candId
+    a(5) = planDate
+    a(6) = candRow
+    a(7) = instrId
+    a(8) = shiftCode
+    a(9) = tripleStart
+    a(10) = liveHoursAfter
+    a(11) = hoursAdded
     CreateAssignmentItem = a
 End Function
 
