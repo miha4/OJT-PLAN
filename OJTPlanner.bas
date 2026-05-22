@@ -187,7 +187,7 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
                     history.Add itm
                 ElseIf UCase$(chosenInstr) = "__BACK__" Then
                     Dim undone As Variant
-                    If UndoLastAssignment(wsPlanOut, history, liveHours, undone) Then
+                    If UndoLastAssignment(wsPlanOut, history, assignments, liveHours, undone) Then
                         If CStr(undone(1)) = CStr(g(giGroupName)) Then
                             Dim backCol As Long, backRow As Long, backCandId As String, backPhase As Long
                             Dim backAvail As Collection, backShift As String, backInstr As String
@@ -290,11 +290,12 @@ Private Function GetPlanRowFromSource(ByVal groupName As String, ByVal srcRow As
     GetPlanRowFromSource = FindIdRow(wsPlan, fallbackId)
 End Function
 
-Private Function UndoLastAssignment(ByVal wsPlan As Worksheet, ByRef history As Collection, ByRef liveHours As Object, ByRef undoneItem As Variant) As Boolean
+Private Function UndoLastAssignment(ByVal wsPlan As Worksheet, ByRef history As Collection, ByRef assignments As Collection, ByRef liveHours As Object, ByRef undoneItem As Variant) As Boolean
     Dim a As Variant, rowCand As Long, rowInstr As Long
     If history.Count = 0 Then Exit Function
     a = history(history.Count)
     history.Remove history.Count
+    If assignments.Count > 0 Then assignments.Remove assignments.Count
     rowCand = GetPlanRowFromSource(CStr(a(1)), CLng(a(6)), wsPlan, CStr(a(4)))
     rowInstr = GetPlanRowFromSource(CStr(a(1)), CLng(a(9)), wsPlan, CStr(a(7)))
     If rowCand > 0 Then wsPlan.Cells(rowCand, CLng(a(2))).ClearContents
@@ -785,17 +786,23 @@ Private Function LoadThresholds(ByVal wsSettings As Worksheet) As Object
     Dim d As Object
     Dim aps(1 To 3) As Double
     Dim acs(1 To 3) As Double
+    Dim app(1 To 3) As Double
 
     Set d = CreateObject("Scripting.Dictionary")
 
-    aps(1) = CDbl(Val(wsSettings.Cells(5, 12).Value2))
-    aps(2) = CDbl(Val(wsSettings.Cells(6, 12).Value2))
-    aps(3) = CDbl(Val(wsSettings.Cells(7, 12).Value2))
+    app(1) = CDbl(Val(wsSettings.Cells(5, 11).Value2))
+    app(2) = CDbl(Val(wsSettings.Cells(6, 11).Value2))
+    app(3) = CDbl(Val(wsSettings.Cells(7, 11).Value2))
 
-    acs(1) = CDbl(Val(wsSettings.Cells(11, 12).Value2))
-    acs(2) = CDbl(Val(wsSettings.Cells(12, 12).Value2))
-    acs(3) = CDbl(Val(wsSettings.Cells(13, 12).Value2))
+    aps(1) = CDbl(Val(wsSettings.Cells(8, 11).Value2))
+    aps(2) = CDbl(Val(wsSettings.Cells(9, 11).Value2))
+    aps(3) = CDbl(Val(wsSettings.Cells(10, 11).Value2))
 
+    acs(1) = CDbl(Val(wsSettings.Cells(14, 11).Value2))
+    acs(2) = CDbl(Val(wsSettings.Cells(15, 11).Value2))
+    acs(3) = CDbl(Val(wsSettings.Cells(16, 11).Value2))
+
+    d.Add "APP", app
     d.Add "APS", aps
     d.Add "ACS", acs
 
@@ -803,7 +810,11 @@ Private Function LoadThresholds(ByVal wsSettings As Worksheet) As Object
 End Function
 
 Private Function GetTrackType(ByVal groupName As String) As String
-    If InStr(1, UCase$(groupName), "ACS", vbTextCompare) > 0 Then
+    If InStr(1, UCase$(groupName), "APP", vbTextCompare) > 0 Then
+        GetTrackType = "APP"
+    ElseIf InStr(1, UCase$(groupName), "APS", vbTextCompare) > 0 Then
+        GetTrackType = "APS"
+    ElseIf InStr(1, UCase$(groupName), "ACS", vbTextCompare) > 0 Then
         GetTrackType = "ACS"
     Else
         GetTrackType = "APS"
