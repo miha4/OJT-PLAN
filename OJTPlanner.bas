@@ -211,6 +211,7 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
                                     End If
                                 End If
                             End If
+                            rowId = rowId - 1
                         Else
                             rowId = rowId - 1
                         End If
