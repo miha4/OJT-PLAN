@@ -318,52 +318,64 @@ End Function
 
 Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Worksheet, ByVal g As Variant, ByVal outRow As Long) As Long
     Dim idCol As Long, nameCol As Long
-    Dim rowStart As Long, rowEnd As Long
     Dim planStartCol As Long, planEndCol As Long
-    Dim rowsCount As Long, planCols As Long
-    Dim valsId As Variant, valsName As Variant, valsPlan As Variant
+    Dim dateRow As Long, dayRow As Long
+    Dim idRowStart As Long, idRowEnd As Long
+    Dim planCols As Long
+    Dim rowCount As Long, r As Long, c As Long
     Dim outData() As Variant
-    Dim srcR As Long, outR As Long, c As Long
-    Dim firstPlanVal As String
 
     idCol = CLng(g(giIdCol))
     nameCol = idCol + 1
-    rowStart = CLng(g(giDateRow))
-    rowEnd = CLng(g(giIdRowEnd))
     planStartCol = CLng(g(giPlanColStart))
     planEndCol = CLng(g(giPlanColEnd))
+    dateRow = CLng(g(giDateRow))
+    dayRow = CLng(g(giDayRow))
+    idRowStart = CLng(g(giIdRowStart))
+    idRowEnd = CLng(g(giIdRowEnd))
+    planCols = planEndCol - planStartCol + 1
 
     wsPlan.Cells(outRow, 1).Value2 = CStr(g(giGroupName))
     wsPlan.Cells(outRow, 1).Font.Bold = True
     outRow = outRow + 1
 
-    rowsCount = rowEnd - rowStart + 1
-    planCols = planEndCol - planStartCol + 1
+    ReDim outData(1 To (idRowEnd - idRowStart + 4), 1 To planCols + 2)
 
-    valsId = wsSrc.Range(wsSrc.Cells(rowStart, idCol), wsSrc.Cells(rowEnd, idCol)).Value2
-    valsName = wsSrc.Range(wsSrc.Cells(rowStart, nameCol), wsSrc.Cells(rowEnd, nameCol)).Value2
-    valsPlan = wsSrc.Range(wsSrc.Cells(rowStart, planStartCol), wsSrc.Cells(rowEnd, planEndCol)).Value2
+    rowCount = 0
 
-    ReDim outData(1 To rowsCount, 1 To planCols + 2)
-    outR = 0
-    For srcR = 1 To rowsCount
-        firstPlanVal = UCase$(Trim$(CStr(valsPlan(srcR, 1))))
-        If srcR <= (CLng(g(giIdRowStart)) - rowStart + 1) Or firstPlanVal = "X1" Or firstPlanVal = "X2" Or firstPlanVal = "X3" Or firstPlanVal = "XS" Then
-            outR = outR + 1
-            outData(outR, 1) = valsId(srcR, 1)
-            outData(outR, 2) = valsName(srcR, 1)
+    ' Glava 1: datumi
+    rowCount = rowCount + 1
+    outData(rowCount, 1) = "ID"
+    outData(rowCount, 2) = "Ime in priimek"
+    For c = 1 To planCols
+        outData(rowCount, c + 2) = wsSrc.Cells(dateRow, planStartCol + c - 1).Value2
+    Next c
+
+    ' Glava 2: dnevi
+    rowCount = rowCount + 1
+    outData(rowCount, 1) = ""
+    outData(rowCount, 2) = ""
+    For c = 1 To planCols
+        outData(rowCount, c + 2) = wsSrc.Cells(dayRow, planStartCol + c - 1).Value2
+    Next c
+
+    ' Podatki: samo vrstice z ID-jem (odstrani prazne vrstice)
+    For r = idRowStart To idRowEnd
+        If Len(Trim$(CStr(wsSrc.Cells(r, idCol).Value2))) > 0 Then
+            rowCount = rowCount + 1
+            outData(rowCount, 1) = wsSrc.Cells(r, idCol).Value2
+            outData(rowCount, 2) = wsSrc.Cells(r, nameCol).Value2
             For c = 1 To planCols
-                outData(outR, c + 2) = valsPlan(srcR, c)
+                outData(rowCount, c + 2) = wsSrc.Cells(r, planStartCol + c - 1).Value2
             Next c
         End If
-    Next srcR
+    Next r
 
-    If outR > 0 Then
-        wsPlan.Cells(outRow, 1).Resize(outR, planCols + 2).Value2 = outData
-        CopyGroupToPlan = outRow + outR + 2
-    Else
-        CopyGroupToPlan = outRow + 2
+    If rowCount > 0 Then
+        wsPlan.Cells(outRow, 1).Resize(rowCount, planCols + 2).Value2 = outData
     End If
+
+    CopyGroupToPlan = outRow + rowCount + 2
 End Function
 
 Private Function OpenTrackerWorkbook(ByVal trackerPath As String, ByRef closeOnExit As Boolean) As Workbook
