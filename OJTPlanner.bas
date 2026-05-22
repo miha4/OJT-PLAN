@@ -336,7 +336,7 @@ Private Function ResolvePhaseLive(ByVal wsSrc As Worksheet, ByVal g As Variant, 
         liveHours.Add key, baseHours
     End If
 
-    ResolvePhaseLive = ResolvePhaseFromHours(CDbl(liveHours(key)), thresholds(GetTrackType(CStr(g(giGroupName)))))
+    ResolvePhaseLive = ResolvePhaseFromHours(CDbl(liveHours(key)), thresholds, GetTrackType(CStr(g(giGroupName))))
 End Function
 
 Private Sub IncrementLiveHours(ByRef liveHours As Object, ByVal candId As String, ByVal addHours As Double)
@@ -360,13 +360,25 @@ Private Function ShiftHoursForDate(ByVal wsSrc As Worksheet, ByVal g As Variant,
     ShiftHoursForDate = 8#
 End Function
 
-Private Function ResolvePhaseFromHours(ByVal totalHours As Double, ByVal t As Variant) As Long
+Private Function ResolvePhaseFromHours(ByVal totalHours As Double, ByVal thresholds As Object, ByVal trackType As String) As Long
+    Dim t As Variant
+    Dim app As Variant
+    Dim baseBeforeTrack As Double
     Dim reserve As Double
+    
+    t = thresholds(trackType)
+    If thresholds.Exists("APP") Then app = thresholds("APP")
     reserve = 8#
+    
+    If trackType = "APS" Or trackType = "ACS" Then
+        baseBeforeTrack = CDbl(app(1)) + CDbl(app(2)) + CDbl(app(3))
+    Else
+        baseBeforeTrack = 0#
+    End If
 
-    If totalHours < (CDbl(t(1)) + reserve) Then
+    If totalHours < (baseBeforeTrack + CDbl(t(1)) + reserve) Then
         ResolvePhaseFromHours = 1
-    ElseIf totalHours < (CDbl(t(1)) + CDbl(t(2)) - reserve) Then
+    ElseIf totalHours < (baseBeforeTrack + CDbl(t(1)) + CDbl(t(2)) - reserve) Then
         ResolvePhaseFromHours = 2
     Else
         ResolvePhaseFromHours = 3
