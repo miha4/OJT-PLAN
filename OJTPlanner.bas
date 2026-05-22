@@ -188,6 +188,11 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
                     UndoLastAssignment wsPlanOut, history, liveHours
                     RefreshPlanView wsPlanOut
                     chosenInstr = ""
+                    rowId = rowId - 2
+                    If rowId < CLng(g(giIdRowStart)) Then
+                        colDate = colDate - 1
+                        rowId = CLng(g(giIdRowEnd)) - 1
+                    End If
                 End If
             End If
 NextCandidate:
@@ -204,7 +209,7 @@ Private Function PromptAssignmentUnified(ByVal wsSrc As Worksheet, ByVal g As Va
     msg = "Skupina: " & CStr(g(giGroupName)) & vbCrLf & _
           "Datum: " & Format$(wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, "dd.mm.") & vbCrLf & _
           "Faza: " & phase & vbCrLf & _
-          "Kandidat: " & wsSrc.Cells(candRow, CLng(g(giIdCol))).Value2 & vbCrLf & _
+          "Kandidat: " & wsSrc.Cells(candRow, CLng(g(giIdCol))).Value2 & " - " & wsSrc.Cells(candRow, CLng(g(giIdCol)) + 1).Value2 & vbCrLf & _
           "Predvidene ure: " & CStr(CDbl(liveHours(UCase$(candId)))) & vbCrLf & _
           "Instruktorji:" & vbCrLf
     For i = 1 To instrList.Count
@@ -367,7 +372,7 @@ Private Function PromptAssignment(ByVal wsSrc As Worksheet, ByVal g As Variant, 
     msg = "Skupina: " & CStr(g(giGroupName)) & vbCrLf & _
           "Datum: " & Format$(wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, "dd.mm.") & vbCrLf & _
           "Faza: " & phase & vbCrLf & _
-          "Kandidat: " & wsSrc.Cells(candRow, CLng(g(giIdCol))).Value2 & vbCrLf & _
+          "Kandidat: " & wsSrc.Cells(candRow, CLng(g(giIdCol))).Value2 & " - " & wsSrc.Cells(candRow, CLng(g(giIdCol)) + 1).Value2 & vbCrLf & _
           "Instruktorji:" & vbCrLf
 
     For i = 1 To instrList.Count
@@ -522,6 +527,8 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
 
     If rowCount > 0 Then
         wsPlan.Cells(outRow, 1).Resize(rowCount, planCols + 2).Value2 = outData
+        wsPlan.Cells(outRow, 1).Resize(1, planCols + 2).Font.Bold = True
+        wsPlan.Cells(outRow, 3).Resize(1, planCols).Font.Color = RGB(0, 0, 255)
     End If
 
     Dim hrS As Long, hrE As Long, hrRows As Long
@@ -529,9 +536,13 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
     If hrS > 0 And hrE >= hrS Then
         hrRows = hrE - hrS + 1
         wsPlan.Cells(outRow + rowCount + 1, 1).Value2 = "URE (kopija)"
+        wsPlan.Cells(outRow + rowCount + 1, 1).Font.Bold = True
+        wsPlan.Cells(outRow + rowCount + 1, 1).Font.Color = RGB(255, 0, 0)
         wsPlan.Cells(outRow + rowCount + 2, 1).Resize(hrRows, 1).Value2 = wsSrc.Range(wsSrc.Cells(hrS, idCol), wsSrc.Cells(hrE, idCol)).Value2
         wsPlan.Cells(outRow + rowCount + 2, 2).Resize(hrRows, 1).Value2 = wsSrc.Range(wsSrc.Cells(hrS, nameCol), wsSrc.Cells(hrE, nameCol)).Value2
         wsPlan.Cells(outRow + rowCount + 2, 3).Resize(hrRows, planCols).Value2 = wsSrc.Range(wsSrc.Cells(hrS, planStartCol), wsSrc.Cells(hrE, planEndCol)).Value2
+        wsPlan.Cells(outRow + rowCount + 2, 1).Resize(hrRows, planCols + 2).Font.Bold = True
+        wsPlan.Cells(outRow + rowCount + 2, 1).Resize(hrRows, planCols + 2).Font.Color = RGB(255, 0, 0)
         CopyGroupToPlan = outRow + rowCount + hrRows + 4
     Else
         CopyGroupToPlan = outRow + rowCount + 2
