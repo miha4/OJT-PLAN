@@ -52,7 +52,7 @@ Public Sub Build_OJT_Plan()
     nextOutRow = 1
     For i = 1 To groups.Count
         g = groups(i)
-        nextOutRow = CopyGroupToPlan(trackerWb.Worksheets(CStr(g(giSrcSheetName))), wsPlan, g, nextOutRow)
+        nextOutRow = CopyGroupToPlan(GetWorksheetOrFail(trackerWb, CStr(g(giSrcSheetName))), wsPlan, g, nextOutRow)
     Next i
 
 
@@ -106,13 +106,13 @@ Public Sub Planiraj_OJT()
     nextOutRow = 1
     For i = 1 To groups.Count
         g = groups(i)
-        nextOutRow = CopyGroupToPlan(trackerWb.Worksheets(CStr(g(giSrcSheetName))), wsPlan, g, nextOutRow)
+        nextOutRow = CopyGroupToPlan(GetWorksheetOrFail(trackerWb, CStr(g(giSrcSheetName))), wsPlan, g, nextOutRow)
     Next i
 
     Set assignments = New Collection
     For i = 1 To groups.Count
         g = groups(i)
-        CollectAssignments trackerWb.Worksheets(CStr(g(giSrcSheetName))), wsPlan, g, thresholds, assignments
+        CollectAssignments GetWorksheetOrFail(trackerWb, CStr(g(giSrcSheetName))), wsPlan, g, thresholds, assignments
     Next i
 
     WriteAssignments wsPlan, assignments
@@ -304,9 +304,38 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
 End Function
 
 Private Function OpenTrackerWorkbook(ByVal trackerPath As String) As Workbook
+    Dim wb As Workbook
+
     Debug.Print "[OJT] Odpiram tracker: "; trackerPath
-    Set OpenTrackerWorkbook = Workbooks.Open(trackerPath, ReadOnly:=True)
-    Debug.Print "[OJT] Tracker odprt: "; OpenTrackerWorkbook.Name
+    On Error Resume Next
+    Set wb = Workbooks.Open(trackerPath, ReadOnly:=True)
+    On Error GoTo 0
+
+    If wb Is Nothing Then
+        Err.Raise 9101, , "OJTracker se ni odprl. Preveri dostop do URL (SharePoint prijava) ali uporabi lokalno pot do datoteke v Nastavitve!C32."
+    End If
+
+    Debug.Print "[OJT] Tracker odprt: "; wb.Name
+    Set OpenTrackerWorkbook = wb
+End Function
+
+
+Private Function GetWorksheetOrFail(ByVal wb As Workbook, ByVal wsName As String) As Worksheet
+    Dim ws As Worksheet
+
+    If wb Is Nothing Then
+        Err.Raise 9102, , "Tracker workbook objekt ni nastavljen."
+    End If
+
+    On Error Resume Next
+    Set ws = wb.Worksheets(wsName)
+    On Error GoTo 0
+
+    If ws Is Nothing Then
+        Err.Raise 9103, , "Na trackerju manjka list: '" & wsName & "'."
+    End If
+
+    Set GetWorksheetOrFail = ws
 End Function
 
 Private Function GetTrackerPath(ByVal wsSettings As Worksheet) As String
