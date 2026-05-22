@@ -210,10 +210,10 @@ Private Function PromptAssignmentUnified(ByVal wsSrc As Worksheet, ByVal g As Va
     Dim i As Long, idx As Long
 
     msg = "Skupina: " & CStr(g(giGroupName)) & vbCrLf & _
-          "🔵 DATUM: " & Format$(wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, "dd.mm.") & vbCrLf & _
+          "DATUM: " & Format$(wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, "dd.mm.") & vbCrLf & _
           "Faza: " & phase & vbCrLf & _
           "Kandidat: " & wsSrc.Cells(candRow, CLng(g(giIdCol))).Value2 & " - " & wsSrc.Cells(candRow, CLng(g(giIdCol)) + 1).Value2 & vbCrLf & _
-          "🔴 PREDVIDENE URE: " & CStr(CDbl(liveHours(UCase$(candId)))) & vbCrLf & _
+          "PREDVIDENE URE: " & CStr(CDbl(liveHours(UCase$(candId)))) & vbCrLf & _
           "Instruktorji:" & vbCrLf
     For i = 1 To instrList.Count
         msg = msg & i & ") " & instrList(i) & vbCrLf
