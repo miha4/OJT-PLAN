@@ -24,6 +24,7 @@ Private Enum GroupIdx
     giPlanStartCol = 14
     giHoursRowStart = 15
     giHoursRowEnd = 16
+    giPlanEnabled = 17
 End Enum
 
 Public Sub Build_OJT_Plan()
@@ -193,6 +194,8 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
                         colDate = colDate - 1
                         rowId = CLng(g(giIdRowEnd)) - 1
                     End If
+                ElseIf UCase$(chosenInstr) = "__END__" Then
+                    Exit Sub
                 End If
             End If
 NextCandidate:
@@ -215,13 +218,14 @@ Private Function PromptAssignmentUnified(ByVal wsSrc As Worksheet, ByVal g As Va
     For i = 1 To instrList.Count
         msg = msg & i & ") " & instrList(i) & vbCrLf
     Next i
-    msg = msg & vbCrLf & "Vnos: indeks;izmena (npr 1;A9)" & vbCrLf & "0 = preskoči, B = nazaj"
+    msg = msg & vbCrLf & "Vnos: indeks;izmena (npr 1;A9)" & vbCrLf & "0 = preskoči, B = nazaj, K = končaj"
 
     inputText = Application.InputBox(msg, "OJT dodelitev", Type:=2)
     If inputText = False Then Exit Function
     inputText = UCase$(Trim$(CStr(inputText)))
     If inputText = "" Or inputText = "0" Then Exit Function
     If inputText = "B" Then chosenInstr = "__BACK__": Exit Function
+    If inputText = "K" Then chosenInstr = "__END__": Exit Function
 
     parts = Split(CStr(inputText), ";")
     If UBound(parts) <> 1 Then MsgBox "Uporabi format indeks;izmena (npr 1;A9)", vbExclamation: Exit Function
@@ -640,7 +644,7 @@ Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
     Dim groups As New Collection
     Dim c As Long
     Dim lastCol As Long
-    Dim g(1 To 16) As Variant
+    Dim g(1 To 17) As Variant
     Dim groupName As String
     Dim warnings As String
 
@@ -662,6 +666,7 @@ Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
         Debug.Print "[OJT] Group col " & c & ": " & groupName
 
         If Not IsGroupColumnValid(wsSettings, c, warnings, groupName) Then GoTo NextCol
+        If g(giPlanEnabled) <> "DA" Then GoTo NextCol
 
         g(giGroupName) = groupName
         g(giSrcSheetName) = groupName
@@ -677,8 +682,9 @@ Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
         g(giCandIdRowStart) = CLng(Val(wsSettings.Cells(15, c).Value2))
         g(giCandIdRowEnd) = CLng(Val(wsSettings.Cells(16, c).Value2))
         g(giPlanStartCol) = ColToNum(CStr(wsSettings.Cells(17, c).Value2))
-        g(giHoursRowStart) = CLng(Val(wsSettings.Cells(18, c).Value2))
-        g(giHoursRowEnd) = CLng(Val(wsSettings.Cells(19, c).Value2))
+        g(giPlanEnabled) = UCase$(Trim$(CStr(wsSettings.Cells(18, c).Value2)))
+        g(giHoursRowStart) = CLng(Val(wsSettings.Cells(19, c).Value2))
+        g(giHoursRowEnd) = CLng(Val(wsSettings.Cells(20, c).Value2))
 
         groups.Add g
 NextCol:
