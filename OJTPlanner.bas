@@ -26,6 +26,7 @@ End Enum
 Public Sub Build_OJT_Plan()
     Dim errMsg As String
     Dim trackerWb As Workbook
+    Dim closeTrackerOnExit As Boolean
     Dim plannerWb As Workbook
     Dim wsPlan As Worksheet
     Dim trackerPath As String
@@ -47,7 +48,7 @@ Public Sub Build_OJT_Plan()
     Set wsPlan = plannerWb.Worksheets(PLAN_SHEET)
     ResetPlanSheet wsPlan
 
-    Set trackerWb = OpenTrackerWorkbook(trackerPath)
+    Set trackerWb = OpenTrackerWorkbook(trackerPath, closeTrackerOnExit)
 
     nextOutRow = 1
     For i = 1 To groups.Count
@@ -58,7 +59,7 @@ Public Sub Build_OJT_Plan()
 
 Cleanup:
     On Error Resume Next
-    If Not trackerWb Is Nothing Then trackerWb.Close SaveChanges:=False
+    If closeTrackerOnExit And Not trackerWb Is Nothing Then trackerWb.Close SaveChanges:=False
     Application.EnableEvents = True
     Application.ScreenUpdating = True
     Application.StatusBar = False
@@ -66,7 +67,7 @@ Cleanup:
     Exit Sub
 
 EH:
-    errMsg = "Planiraj_OJT napaka " & Err.Number & ": " & Err.Description
+    errMsg = "Build_OJT_Plan napaka " & Err.Number & ": " & Err.Description
     Debug.Print errMsg
     MsgBox errMsg, vbCritical
     Resume Cleanup
@@ -75,6 +76,7 @@ End Sub
 Public Sub Planiraj_OJT()
     Dim errMsg As String
     Dim trackerWb As Workbook
+    Dim closeTrackerOnExit As Boolean
     Dim plannerWb As Workbook
     Dim wsPlan As Worksheet
     Dim wsSettings As Worksheet
@@ -100,7 +102,7 @@ Public Sub Planiraj_OJT()
     Set wsPlan = plannerWb.Worksheets(PLAN_SHEET)
     ResetPlanSheet wsPlan
 
-    Set trackerWb = OpenTrackerWorkbook(trackerPath)
+    Set trackerWb = OpenTrackerWorkbook(trackerPath, closeTrackerOnExit)
 
     Dim nextOutRow As Long
     nextOutRow = 1
@@ -121,7 +123,7 @@ Public Sub Planiraj_OJT()
 
 Cleanup:
     On Error Resume Next
-    If Not trackerWb Is Nothing Then trackerWb.Close SaveChanges:=False
+    If closeTrackerOnExit And Not trackerWb Is Nothing Then trackerWb.Close SaveChanges:=False
     Application.EnableEvents = True
     Application.ScreenUpdating = True
     Application.StatusBar = False
@@ -305,6 +307,9 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
     Dim planStartCol As Long, planEndCol As Long
     Dim rowsCount As Long, planCols As Long
     Dim valsId As Variant, valsName As Variant, valsPlan As Variant
+    Dim outData() As Variant
+    Dim srcR As Long, outR As Long, c As Long
+    Dim firstPlanVal As String
 
     idCol = CLng(g(giIdCol))
     nameCol = idCol + 1
@@ -324,14 +329,29 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
     valsName = wsSrc.Range(wsSrc.Cells(rowStart, nameCol), wsSrc.Cells(rowEnd, nameCol)).Value2
     valsPlan = wsSrc.Range(wsSrc.Cells(rowStart, planStartCol), wsSrc.Cells(rowEnd, planEndCol)).Value2
 
-    wsPlan.Cells(outRow, 1).Resize(rowsCount, 1).Value2 = valsId
-    wsPlan.Cells(outRow, 2).Resize(rowsCount, 1).Value2 = valsName
-    wsPlan.Cells(outRow, 3).Resize(rowsCount, planCols).Value2 = valsPlan
+    ReDim outData(1 To rowsCount, 1 To planCols + 2)
+    outR = 0
+    For srcR = 1 To rowsCount
+        firstPlanVal = UCase$(Trim$(CStr(valsPlan(srcR, 1))))
+        If srcR <= (CLng(g(giIdRowStart)) - rowStart + 1) Or firstPlanVal = "X1" Or firstPlanVal = "X2" Or firstPlanVal = "X3" Or firstPlanVal = "XS" Then
+            outR = outR + 1
+            outData(outR, 1) = valsId(srcR, 1)
+            outData(outR, 2) = valsName(srcR, 1)
+            For c = 1 To planCols
+                outData(outR, c + 2) = valsPlan(srcR, c)
+            Next c
+        End If
+    Next srcR
 
-    CopyGroupToPlan = outRow + rowsCount + 2
+    If outR > 0 Then
+        wsPlan.Cells(outRow, 1).Resize(outR, planCols + 2).Value2 = outData
+        CopyGroupToPlan = outRow + outR + 2
+    Else
+        CopyGroupToPlan = outRow + 2
+    End If
 End Function
 
-Private Function OpenTrackerWorkbook(ByVal trackerPath As String) As Workbook
+Private Function OpenTrackerWorkbook(ByVal trackerPath As String, ByRef closeOnExit As Boolean) As Workbook
     Dim wb As Workbook
     Dim normalized As String
 
@@ -340,6 +360,7 @@ Private Function OpenTrackerWorkbook(ByVal trackerPath As String) As Workbook
 
     Set wb = FindOpenWorkbook(normalized)
     If Not wb Is Nothing Then
+        closeOnExit = False
         Debug.Print "[OJT] Tracker že odprt: "; wb.FullName
         Set OpenTrackerWorkbook = wb
         Exit Function
@@ -348,6 +369,7 @@ Private Function OpenTrackerWorkbook(ByVal trackerPath As String) As Workbook
     On Error Resume Next
     Application.DisplayAlerts = False
     Set wb = Workbooks.Open(Filename:=normalized, UpdateLinks:=0, ReadOnly:=True, Notify:=False, AddToMru:=False)
+    If Not wb Is Nothing Then closeOnExit = True
     Application.DisplayAlerts = True
     On Error GoTo 0
 
