@@ -223,7 +223,7 @@ Private Function GetAvailableInstructors(ByVal wsSrc As Worksheet, ByVal g As Va
     Set GetAvailableInstructors = c
 End Function
 
-Private Function PromptAssignment(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candRow As Long, ByVal colDate As Long, ByVal phase As Long, ByVal instr As Collection, ByRef chosenInstr As String, ByRef shiftCode As String) As Boolean
+Private Function PromptAssignment(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candRow As Long, ByVal colDate As Long, ByVal phase As Long, ByVal instrList As Collection, ByRef chosenInstr As String, ByRef shiftCode As String) As Boolean
     Dim msg As String
     Dim i As Long
     Dim pick As Variant
@@ -234,8 +234,8 @@ Private Function PromptAssignment(ByVal wsSrc As Worksheet, ByVal g As Variant, 
           "Kandidat: " & wsSrc.Cells(candRow, CLng(g(giIdCol))).Value2 & vbCrLf & _
           "Instruktorji:" & vbCrLf
 
-    For i = 1 To instr.Count
-        msg = msg & i & ") " & instr(i) & vbCrLf
+    For i = 1 To instrList.Count
+        msg = msg & i & ") " & instrList(i) & vbCrLf
     Next i
     msg = msg & vbCrLf & "Vpiši številko instruktorja ali 0 za brez dodelitve:"
 
@@ -243,12 +243,12 @@ Private Function PromptAssignment(ByVal wsSrc As Worksheet, ByVal g As Variant, 
     If pick = False Then Exit Function
     If CLng(pick) = 0 Then Exit Function
 
-    If CLng(pick) < 1 Or CLng(pick) > instr.Count Then
+    If CLng(pick) < 1 Or CLng(pick) > instrList.Count Then
         MsgBox "Napačna izbira.", vbExclamation
         Exit Function
     End If
 
-    chosenInstr = instr(CLng(pick))
+    chosenInstr = instrList(CLng(pick))
     shiftCode = UCase$(Trim$(CStr(Application.InputBox("Vpiši izmeno (npr A9):", "Izmena", Type:=2))))
     If Len(shiftCode) = 0 Then Exit Function
 
@@ -594,7 +594,10 @@ Private Sub EnsurePlanSheet(ByVal wb As Workbook)
 End Sub
 
 Private Sub ResetPlanSheet(ByVal ws As Worksheet)
-    ws.Cells.Clear
+    On Error Resume Next
+    ws.Cells.ClearContents
+    ws.Cells.ClearComments
+    On Error GoTo 0
 End Sub
 
 Private Function WorksheetExists(ByVal wb As Workbook, ByVal wsName As String) As Boolean
