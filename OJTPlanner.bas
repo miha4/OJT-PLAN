@@ -55,6 +55,7 @@ Public Sub Build_OJT_Plan()
     nextOutRow = 1
     For i = 1 To groups.Count
         g = groups(i)
+        Debug.Print "[OJT] Build copy group: " & CStr(g(giGroupName))
         nextOutRow = CopyGroupToPlan(GetWorksheetOrFail(trackerWb, CStr(g(giSrcSheetName))), wsPlan, g, nextOutRow)
     Next i
 
@@ -112,6 +113,7 @@ Public Sub Planiraj_OJT()
     nextOutRow = 1
     For i = 1 To groups.Count
         g = groups(i)
+        Debug.Print "[OJT] Build copy group: " & CStr(g(giGroupName))
         nextOutRow = CopyGroupToPlan(GetWorksheetOrFail(trackerWb, CStr(g(giSrcSheetName))), wsPlan, g, nextOutRow)
     Next i
 
@@ -572,7 +574,7 @@ Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
     Dim groups As New Collection
     Dim c As Long
     Dim lastCol As Long
-    Dim g(1 To 14) As Variant
+    Dim g(1 To 16) As Variant
     Dim groupName As String
     Dim warnings As String
 
