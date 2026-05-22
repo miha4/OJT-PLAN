@@ -305,17 +305,29 @@ End Function
 
 Private Function OpenTrackerWorkbook(ByVal trackerPath As String) As Workbook
     Dim wb As Workbook
+    Dim normalized As String
 
-    Debug.Print "[OJT] Odpiram tracker: "; trackerPath
+    normalized = NormalizeSharePointPath(trackerPath)
+    Debug.Print "[OJT] Odpiram tracker: "; normalized
+
+    Set wb = FindOpenWorkbook(normalized)
+    If Not wb Is Nothing Then
+        Debug.Print "[OJT] Tracker že odprt: "; wb.FullName
+        Set OpenTrackerWorkbook = wb
+        Exit Function
+    End If
+
     On Error Resume Next
-    Set wb = Workbooks.Open(trackerPath, ReadOnly:=True)
+    Application.DisplayAlerts = False
+    Set wb = Workbooks.Open(Filename:=normalized, UpdateLinks:=0, ReadOnly:=True, Notify:=False, AddToMru:=False)
+    Application.DisplayAlerts = True
     On Error GoTo 0
 
     If wb Is Nothing Then
-        Err.Raise 9101, , "OJTracker se ni odprl. Preveri dostop do URL (SharePoint prijava) ali uporabi lokalno pot do datoteke v Nastavitve!C32."
+        Err.Raise 9101, , "OJTracker se ni odprl. Če uporabljaš SharePoint URL, najprej odpri datoteko ročno iz istega Office računa ali v Nastavitve!C32 vpiši lokalno sync pot (OneDrive)."
     End If
 
-    Debug.Print "[OJT] Tracker odprt: "; wb.Name
+    Debug.Print "[OJT] Tracker odprt: "; wb.FullName
     Set OpenTrackerWorkbook = wb
 End Function
 
@@ -339,8 +351,41 @@ Private Function GetWorksheetOrFail(ByVal wb As Workbook, ByVal wsName As String
 End Function
 
 Private Function GetTrackerPath(ByVal wsSettings As Worksheet) As String
-    GetTrackerPath = Trim$(CStr(wsSettings.Cells(32, 3).Value2))
-    If Len(GetTrackerPath) = 0 Then Err.Raise 5, , "Manjka pot do OJTracker (Nastavitve C32)."
+    Dim v As String
+    On Error Resume Next
+    If wsSettings.Cells(32, 3).Hyperlinks.Count > 0 Then
+        v = wsSettings.Cells(32, 3).Hyperlinks(1).Address
+    End If
+    On Error GoTo 0
+
+    If Len(Trim$(v)) = 0 Then v = Trim$(CStr(wsSettings.Cells(32, 3).Value2))
+    v = NormalizeSharePointPath(v)
+
+    If Len(v) = 0 Then Err.Raise 5, , "Manjka pot do OJTracker (Nastavitve C32)."
+    GetTrackerPath = v
+End Function
+
+Private Function NormalizeSharePointPath(ByVal rawPath As String) As String
+    Dim p As String
+    p = Trim$(rawPath)
+    If Len(p) = 0 Then
+        NormalizeSharePointPath = ""
+        Exit Function
+    End If
+
+    If InStr(1, p, "?", vbTextCompare) > 0 Then p = Split(p, "?")(0)
+    p = Replace(p, "%20", " ")
+    NormalizeSharePointPath = p
+End Function
+
+Private Function FindOpenWorkbook(ByVal fullPathOrUrl As String) As Workbook
+    Dim wb As Workbook
+    For Each wb In Application.Workbooks
+        If LCase$(NormalizeSharePointPath(wb.FullName)) = LCase$(NormalizeSharePointPath(fullPathOrUrl)) Then
+            Set FindOpenWorkbook = wb
+            Exit Function
+        End If
+    Next wb
 End Function
 
 Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
