@@ -173,11 +173,13 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
 
             If availableInstructors.Count > 0 Then
                 If PromptAssignmentUnified(wsSrc, g, rowId, colDate, candPhase, availableInstructors, chosenInstr, shiftCode, liveHours, candId) Then
-                    IncrementLiveHours liveHours, candId, ShiftHoursFromCode(shiftCode)
+                    Dim addH As Double
+                    addH = ShiftHoursForDate(wsSrc, g, colDate)
+                    IncrementLiveHours liveHours, candId, addH
                     Dim itm As Variant
                     Dim instrSrcRow As Long
                     instrSrcRow = FindSourceRowById(wsSrc, g, chosenInstr)
-                    itm = CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), candId, rowId, chosenInstr, shiftCode, instrSrcRow, CDbl(liveHours(UCase$(candId))))
+                    itm = CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), candId, rowId, chosenInstr, shiftCode, instrSrcRow, CDbl(liveHours(UCase$(candId))), addH)
                     assignments.Add itm
                     ApplySingleAssignment wsPlanOut, itm
                     RefreshPlanView wsPlanOut
@@ -263,7 +265,7 @@ Private Sub UndoLastAssignment(ByVal wsPlan As Worksheet, ByRef history As Colle
     rowInstr = GetPlanRowFromSource(CStr(a(1)), CLng(a(8)), wsPlan, CStr(a(6)))
     If rowCand > 0 Then wsPlan.Cells(rowCand, CLng(a(2))).ClearContents
     If rowInstr > 0 Then wsPlan.Cells(rowInstr, CLng(a(2))).ClearContents
-    IncrementLiveHours liveHours, CStr(a(3)), -ShiftHoursFromCode(CStr(a(7)))
+    IncrementLiveHours liveHours, CStr(a(3)), -CDbl(a(10))
 End Sub
 
 
@@ -307,8 +309,18 @@ Private Sub IncrementLiveHours(ByRef liveHours As Object, ByVal candId As String
     liveHours(key) = CDbl(liveHours(key)) + addHours
 End Sub
 
-Private Function ShiftHoursFromCode(ByVal shiftCode As String) As Double
-    ShiftHoursFromCode = 8#
+Private Function ShiftHoursForDate(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal colDate As Long) As Double
+    Dim r As Long
+    Dim v As Variant
+    r = CLng(g(giCandIdRowStart)) - 1
+    If r > 0 Then
+        v = wsSrc.Cells(r, colDate).Value2
+        If IsNumeric(v) Then
+            ShiftHoursForDate = CDbl(v)
+            Exit Function
+        End If
+    End If
+    ShiftHoursForDate = 8#
 End Function
 
 Private Function ResolvePhaseFromHours(ByVal totalHours As Double, ByVal t As Variant) As Long
@@ -419,8 +431,8 @@ Private Sub AddOrReplaceComment(ByVal cell As Range, ByVal text As String)
     cell.AddCommentThreaded text
 End Sub
 
-Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate As Variant, ByVal colDate As Long, ByVal candId As String, ByVal candRow As Long, ByVal instrId As String, ByVal shiftCode As String, ByVal tripleStart As Long, ByVal liveHoursAfter As Double) As Variant
-    Dim a(1 To 9) As Variant
+Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate As Variant, ByVal colDate As Long, ByVal candId As String, ByVal candRow As Long, ByVal instrId As String, ByVal shiftCode As String, ByVal tripleStart As Long, ByVal liveHoursAfter As Double, ByVal hoursAdded As Double) As Variant
+    Dim a(1 To 10) As Variant
     a(1) = groupName
     a(2) = colDate
     a(3) = candId
@@ -430,6 +442,7 @@ Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate 
     a(7) = shiftCode
     a(8) = tripleStart
     a(9) = liveHoursAfter
+    a(10) = hoursAdded
     CreateAssignmentItem = a
 End Function
 
