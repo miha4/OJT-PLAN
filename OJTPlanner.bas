@@ -317,13 +317,32 @@ End Function
 Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
     Dim groups As New Collection
     Dim c As Long
+    Dim lastCol As Long
     Dim g(1 To 14) As Variant
+    Dim groupName As String
+    Dim warnings As String
 
-    c = SETTINGS_FIRST_GROUP_COL
-    Do While Len(Trim$(CStr(wsSettings.Cells(SETTINGS_GROUP_ROW, c).Value2))) > 0
-        Debug.Print "[OJT] Group col " & c & ": " & Trim$(CStr(wsSettings.Cells(SETTINGS_GROUP_ROW, c).Value2))
-        g(giGroupName) = Trim$(CStr(wsSettings.Cells(SETTINGS_GROUP_ROW, c).Value2))
-        g(giSrcSheetName) = g(giGroupName)
+    lastCol = wsSettings.Cells(SETTINGS_GROUP_ROW, wsSettings.Columns.Count).End(xlToLeft).Column
+    If lastCol < SETTINGS_FIRST_GROUP_COL Then
+        Set LoadGroups = groups
+        Exit Function
+    End If
+
+    For c = SETTINGS_FIRST_GROUP_COL To lastCol
+        groupName = Trim$(CStr(wsSettings.Cells(SETTINGS_GROUP_ROW, c).Value2))
+        If Len(groupName) = 0 Then
+            If HasAnyGroupConfig(wsSettings, c) Then
+                warnings = warnings & "- Stolpec " & Split(wsSettings.Cells(1, c).Address(False, False), "$")(0) & " ima delne podatke brez imena skupine." & vbCrLf
+            End If
+            GoTo NextCol
+        End If
+
+        Debug.Print "[OJT] Group col " & c & ": " & groupName
+
+        If Not IsGroupColumnValid(wsSettings, c, warnings, groupName) Then GoTo NextCol
+
+        g(giGroupName) = groupName
+        g(giSrcSheetName) = groupName
         g(giIdCol) = CLng(Val(wsSettings.Cells(4, c).Value2))
         g(giIdRowStart) = CLng(Val(wsSettings.Cells(5, c).Value2))
         g(giIdRowEnd) = CLng(Val(wsSettings.Cells(6, c).Value2))
@@ -338,11 +357,50 @@ Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
         g(giPlanStartCol) = ColToNum(CStr(wsSettings.Cells(17, c).Value2))
 
         groups.Add g
-        c = c + 1
-    Loop
+NextCol:
+    Next c
+
+    If Len(warnings) > 0 Then
+        MsgBox "Nekatere skupine niso izpolnjene in bodo preskočene:" & vbCrLf & vbCrLf & warnings, vbExclamation
+    End If
 
     Debug.Print "[OJT] Skupin naloženih: " & groups.Count
     Set LoadGroups = groups
+End Function
+
+Private Function IsGroupColumnValid(ByVal ws As Worksheet, ByVal c As Long, ByRef warnings As String, ByVal groupName As String) As Boolean
+    Dim missing As String
+
+    If CLng(Val(ws.Cells(4, c).Value2)) <= 0 Then missing = missing & "STOLPEC ID-JEV, "
+    If CLng(Val(ws.Cells(5, c).Value2)) <= 0 Then missing = missing & "ZAČETNA VRSTICA ID-JEV, "
+    If CLng(Val(ws.Cells(6, c).Value2)) <= 0 Then missing = missing & "KONČNA VRSTICA ID-JEV, "
+    If Len(Trim$(CStr(ws.Cells(7, c).Value2))) = 0 Then missing = missing & "ZAČETNI STOLPEC PLANA, "
+    If Len(Trim$(CStr(ws.Cells(8, c).Value2))) = 0 Then missing = missing & "KONČNI STOLPEC PLANA, "
+    If Len(Trim$(CStr(ws.Cells(11, c).Value2))) = 0 Then missing = missing & "ZAČETNI STOLPEC DATUMOV, "
+    If Len(Trim$(CStr(ws.Cells(12, c).Value2))) = 0 Then missing = missing & "KONČNI STOLPEC DATUMOV, "
+    If CLng(Val(ws.Cells(13, c).Value2)) <= 0 Then missing = missing & "VRSTICA DATUMOV, "
+    If CLng(Val(ws.Cells(14, c).Value2)) <= 0 Then missing = missing & "VRSTICA DNEVOV, "
+    If CLng(Val(ws.Cells(15, c).Value2)) <= 0 Then missing = missing & "ZAČETNA VRSTICA ID-JEV KAND, "
+    If CLng(Val(ws.Cells(16, c).Value2)) <= 0 Then missing = missing & "KONČNA VRSTICA ID-JEV KAND, "
+    If Len(Trim$(CStr(ws.Cells(17, c).Value2))) = 0 Then missing = missing & "STOLPEC ZAČETKA PLANIRANJA OJT, "
+
+    If Len(missing) > 0 Then
+        missing = Left$(missing, Len(missing) - 2)
+        warnings = warnings & "- " & groupName & ": manjkajo " & missing & "." & vbCrLf
+        IsGroupColumnValid = False
+    Else
+        IsGroupColumnValid = True
+    End If
+End Function
+
+Private Function HasAnyGroupConfig(ByVal ws As Worksheet, ByVal c As Long) As Boolean
+    Dim r As Long
+    For r = 4 To 17
+        If Len(Trim$(CStr(ws.Cells(r, c).Value2))) > 0 Then
+            HasAnyGroupConfig = True
+            Exit Function
+        End If
+    Next r
 End Function
 
 Private Function LoadThresholds(ByVal wsSettings As Worksheet) As Object
