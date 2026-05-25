@@ -5,6 +5,7 @@ Private Const PLAN_SHEET As String = "OJT Plan"
 Private Const SETTINGS_GROUP_ROW As Long = 3
 Private Const SETTINGS_FIRST_GROUP_COL As Long = 3 'C
 Private mPlanRowMap As Object
+Private mCandidatePanelIndex As Object
 
 Private Enum GroupIdx
     giGroupName = 1
@@ -54,7 +55,7 @@ Public Sub Build_OJT_Plan()
     Set trackerWb = OpenTrackerWorkbook(trackerPath, closeTrackerOnExit)
 
     Set mPlanRowMap = CreateObject("Scripting.Dictionary")
-    Set mPlanRowMap = CreateObject("Scripting.Dictionary")
+    Set mCandidatePanelIndex = CreateObject("Scripting.Dictionary")
     nextOutRow = 1
     For i = 1 To groups.Count
         g = groups(i)
@@ -121,6 +122,7 @@ Public Sub Planiraj_OJT()
     Next i
 
     Set assignments = New Collection
+    Set mCandidatePanelIndex = CreateObject("Scripting.Dictionary")
     Set liveHours = CreateObject("Scripting.Dictionary")
     Set history = New Collection
     For i = 1 To groups.Count
@@ -196,7 +198,7 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
                     Dim itm As Variant
                     Dim instrSrcRow As Long
                     instrSrcRow = FindSourceRowById(wsSrc, g, chosenInstr)
-                    itm = CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), colDate, candId, rowId, chosenInstr, shiftCode, instrSrcRow, CDbl(liveHours(UCase$(candId))), addH, hoursRow)
+                    itm = CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), colDate, candId, rowId, chosenInstr, shiftCode, instrSrcRow, CDbl(liveHours(UCase$(candId))), addH, hoursRow, candPhase)
                     assignments.Add itm
                     ApplySingleAssignment wsPlanOut, itm
                     HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, False
@@ -331,7 +333,7 @@ Private Sub ApplySingleAssignment(ByVal wsPlan As Worksheet, ByVal a As Variant)
         AddOrReplaceComment wsPlan.Cells(rowInstr, CLng(a(2))), "OJT: " & CStr(a(7)) & " - " & CStr(a(4))
     End If
     If rowHours > 0 Then wsPlan.Cells(rowHours, CLng(a(2))).Value2 = CDbl(a(10))
-    WriteCandidateHoursPanel wsPlan, CStr(a(1)), CStr(a(4)), CLng(a(2)), CDbl(a(10))
+    WriteCandidateHoursPanel wsPlan, CStr(a(1)), CStr(a(4)), CLng(a(2)), CDbl(a(10)), CLng(a(13))
 End Sub
 
 
@@ -360,22 +362,24 @@ Private Function UndoLastAssignment(ByVal wsPlan As Worksheet, ByRef history As 
     If rowInstr > 0 Then wsPlan.Cells(rowInstr, CLng(a(2))).ClearContents
     IncrementLiveHours liveHours, CStr(a(4)), -CDbl(a(11))
     If rowHours > 0 Then wsPlan.Cells(rowHours, CLng(a(2))).Value2 = CDbl(liveHours(UCase$(CStr(a(4)))))
-    WriteCandidateHoursPanel wsPlan, CStr(a(1)), CStr(a(4)), CLng(a(2)), CDbl(liveHours(UCase$(CStr(a(4)))))
+    WriteCandidateHoursPanel wsPlan, CStr(a(1)), CStr(a(4)), CLng(a(2)), CDbl(liveHours(UCase$(CStr(a(4))))), CLng(a(13))
     undoneItem = a
     UndoLastAssignment = True
 End Function
 
-Private Sub WriteCandidateHoursPanel(ByVal wsPlan As Worksheet, ByVal groupName As String, ByVal candId As String, ByVal planCol As Long, ByVal hoursVal As Double)
+Private Sub WriteCandidateHoursPanel(ByVal wsPlan As Worksheet, ByVal groupName As String, ByVal candId As String, ByVal planCol As Long, ByVal hoursVal As Double, ByVal phase As Long)
     Dim lastGroupRow As Long
-    Dim rowName As Long, rowHours As Long
+    Dim rowName As Long, rowHours As Long, baseRow As Long, candidateIdx As Long
     Dim rowCand As Long
     Dim candLabel As String
 
     lastGroupRow = GetGroupLastPlanRow(groupName)
     If lastGroupRow <= 0 Then Exit Sub
 
-    rowName = lastGroupRow + 2
-    rowHours = lastGroupRow + 3
+    candidateIdx = EnsureCandidatePanelIndex(groupName, candId)
+    baseRow = lastGroupRow + 2 + (candidateIdx - 1) * 3
+    rowName = baseRow
+    rowHours = baseRow + phase
     rowCand = FindIdRow(wsPlan, candId)
     candLabel = candId
     If rowCand > 0 Then
@@ -386,9 +390,17 @@ Private Sub WriteCandidateHoursPanel(ByVal wsPlan As Worksheet, ByVal groupName 
 
     wsPlan.Cells(rowName, 1).Value2 = "Kandidat"
     wsPlan.Cells(rowName, 2).Value2 = candLabel
-    wsPlan.Cells(rowHours, 1).Value2 = "URE"
+    wsPlan.Cells(rowHours, 1).Value2 = "URE F" & CStr(phase)
     wsPlan.Cells(rowHours, planCol).Value2 = hoursVal
 End Sub
+
+Private Function EnsureCandidatePanelIndex(ByVal groupName As String, ByVal candId As String) As Long
+    Dim k As String
+    k = groupName & "|" & UCase$(candId)
+    If mCandidatePanelIndex Is Nothing Then Set mCandidatePanelIndex = CreateObject("Scripting.Dictionary")
+    If Not mCandidatePanelIndex.Exists(k) Then mCandidatePanelIndex(k) = mCandidatePanelIndex.Count + 1
+    EnsureCandidatePanelIndex = CLng(mCandidatePanelIndex(k))
+End Function
 
 Private Function GetGroupLastPlanRow(ByVal groupName As String) As Long
     Dim k As Variant
@@ -616,8 +628,8 @@ Private Sub AddOrReplaceComment(ByVal cell As Range, ByVal text As String)
     cell.AddCommentThreaded text
 End Sub
 
-Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate As Variant, ByVal colDate As Long, ByVal srcColDate As Long, ByVal candId As String, ByVal candRow As Long, ByVal instrId As String, ByVal shiftCode As String, ByVal tripleStart As Long, ByVal liveHoursAfter As Double, ByVal hoursAdded As Double, ByVal hoursRow As Long) As Variant
-    Dim a(1 To 12) As Variant
+Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate As Variant, ByVal colDate As Long, ByVal srcColDate As Long, ByVal candId As String, ByVal candRow As Long, ByVal instrId As String, ByVal shiftCode As String, ByVal tripleStart As Long, ByVal liveHoursAfter As Double, ByVal hoursAdded As Double, ByVal hoursRow As Long, ByVal candPhase As Long) As Variant
+    Dim a(1 To 13) As Variant
     a(1) = groupName
     a(2) = colDate
     a(3) = srcColDate
@@ -630,6 +642,7 @@ Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate 
     a(10) = liveHoursAfter
     a(11) = hoursAdded
     a(12) = hoursRow
+    a(13) = candPhase
     CreateAssignmentItem = a
 End Function
 
