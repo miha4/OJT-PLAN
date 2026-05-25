@@ -320,9 +320,10 @@ Private Sub HighlightInstructorCandidates(ByVal wsPlan As Worksheet, ByVal wsSrc
 End Sub
 
 Private Sub ApplySingleAssignment(ByVal wsPlan As Worksheet, ByVal a As Variant)
-    Dim rowCand As Long, rowInstr As Long
+    Dim rowCand As Long, rowInstr As Long, rowHours As Long
     rowCand = GetPlanRowFromSource(CStr(a(1)), CLng(a(6)), wsPlan, CStr(a(4)))
     rowInstr = GetPlanRowFromSource(CStr(a(1)), CLng(a(9)), wsPlan, CStr(a(7)))
+    rowHours = GetPlanRowFromSource(CStr(a(1)), CLng(a(12)), wsPlan, CStr(a(4)))
     If rowCand > 0 Then
         wsPlan.Cells(rowCand, CLng(a(2))).Value2 = CStr(a(8)) & "s"
         AddOrReplaceComment wsPlan.Cells(rowCand, CLng(a(2))), "OJT: " & CStr(a(7)) & " - " & CStr(a(4)) & " | predvidene ure: " & CStr(a(10))
@@ -348,13 +349,14 @@ Private Function GetPlanRowFromSource(ByVal groupName As String, ByVal srcRow As
 End Function
 
 Private Function UndoLastAssignment(ByVal wsPlan As Worksheet, ByRef history As Collection, ByRef assignments As Collection, ByRef liveHours As Object, ByRef undoneItem As Variant) As Boolean
-    Dim a As Variant, rowCand As Long, rowInstr As Long
+    Dim a As Variant, rowCand As Long, rowInstr As Long, rowHours As Long
     If history.Count = 0 Then Exit Function
     a = history(history.Count)
     history.Remove history.Count
     If assignments.Count > 0 Then assignments.Remove assignments.Count
     rowCand = GetPlanRowFromSource(CStr(a(1)), CLng(a(6)), wsPlan, CStr(a(4)))
     rowInstr = GetPlanRowFromSource(CStr(a(1)), CLng(a(9)), wsPlan, CStr(a(7)))
+    rowHours = GetPlanRowFromSource(CStr(a(1)), CLng(a(12)), wsPlan, CStr(a(4)))
     If rowCand > 0 Then wsPlan.Cells(rowCand, CLng(a(2))).ClearContents
     If rowInstr > 0 Then wsPlan.Cells(rowInstr, CLng(a(2))).ClearContents
     IncrementLiveHours liveHours, CStr(a(4)), -CDbl(a(11))
