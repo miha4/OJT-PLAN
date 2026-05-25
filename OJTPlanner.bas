@@ -332,7 +332,6 @@ Private Sub ApplySingleAssignment(ByVal wsPlan As Worksheet, ByVal a As Variant)
         wsPlan.Cells(rowInstr, CLng(a(2))).Value2 = CStr(a(8)) & "i"
         AddOrReplaceComment wsPlan.Cells(rowInstr, CLng(a(2))), "OJT: " & CStr(a(7)) & " - " & CStr(a(4))
     End If
-    If rowHours > 0 Then wsPlan.Cells(rowHours, CLng(a(2))).Value2 = CDbl(a(10))
     WriteCandidateHoursPanel wsPlan, CStr(a(1)), CStr(a(4)), CLng(a(2)), CDbl(a(10)), CLng(a(13))
 End Sub
 
@@ -361,7 +360,6 @@ Private Function UndoLastAssignment(ByVal wsPlan As Worksheet, ByRef history As 
     If rowCand > 0 Then wsPlan.Cells(rowCand, CLng(a(2))).ClearContents
     If rowInstr > 0 Then wsPlan.Cells(rowInstr, CLng(a(2))).ClearContents
     IncrementLiveHours liveHours, CStr(a(4)), -CDbl(a(11))
-    If rowHours > 0 Then wsPlan.Cells(rowHours, CLng(a(2))).Value2 = CDbl(liveHours(UCase$(CStr(a(4)))))
     WriteCandidateHoursPanel wsPlan, CStr(a(1)), CStr(a(4)), CLng(a(2)), CDbl(liveHours(UCase$(CStr(a(4))))), CLng(a(13))
     undoneItem = a
     UndoLastAssignment = True
