@@ -364,19 +364,32 @@ End Function
 
 Private Function ResolvePhaseFromHours(ByVal totalHours As Double, ByVal thresholds As Object, ByVal trackType As String, Optional ByVal reserveHours As Double = 0#) As Long
     Dim t As Variant
+    Dim app As Variant
+    Dim baseBeforeTrack As Double
+    Dim trackHours As Double
     Dim phase1Limit As Double
     Dim phase2Limit As Double
     
     t = thresholds(trackType)
+    If thresholds.Exists("APP") Then app = thresholds("APP")
 
-    ' Fazo določimo izključno iz seštevka ur za izbran track (APP/APS/ACS)
-    ' + rezerva ene izmene (dinamično iz glave ur za datum), brez prištevanja drugih trackov.
+    ' Ure v sledilniku so kumulativne.
+    ' Za APS/ACS najprej odštejemo APP (predhodni blok), nato fazo določimo na
+    ' urah znotraj izbranega tracka + rezerva ene izmene.
+    If trackType = "APS" Or trackType = "ACS" Then
+        baseBeforeTrack = CDbl(app(1)) + CDbl(app(2)) + CDbl(app(3))
+    Else
+        baseBeforeTrack = 0#
+    End If
+    trackHours = totalHours - baseBeforeTrack
+    If trackHours < 0# Then trackHours = 0#
+
     phase1Limit = CDbl(t(1))
     phase2Limit = phase1Limit + CDbl(t(2))
 
-    If totalHours < (phase1Limit + reserveHours) Then
+    If trackHours < (phase1Limit + reserveHours) Then
         ResolvePhaseFromHours = 1
-    ElseIf totalHours < (phase2Limit - reserveHours) Then
+    ElseIf trackHours < (phase2Limit - reserveHours) Then
         ResolvePhaseFromHours = 2
     Else
         ResolvePhaseFromHours = 3
