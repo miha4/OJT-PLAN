@@ -331,6 +331,7 @@ Private Sub ApplySingleAssignment(ByVal wsPlan As Worksheet, ByVal a As Variant)
         AddOrReplaceComment wsPlan.Cells(rowInstr, CLng(a(2))), "OJT: " & CStr(a(7)) & " - " & CStr(a(4))
     End If
     If rowHours > 0 Then wsPlan.Cells(rowHours, CLng(a(2))).Value2 = CDbl(a(10))
+    WriteCandidateHoursPanel wsPlan, CStr(a(1)), CStr(a(4)), CLng(a(2)), CDbl(a(10))
 End Sub
 
 
@@ -359,8 +360,53 @@ Private Function UndoLastAssignment(ByVal wsPlan As Worksheet, ByRef history As 
     If rowInstr > 0 Then wsPlan.Cells(rowInstr, CLng(a(2))).ClearContents
     IncrementLiveHours liveHours, CStr(a(4)), -CDbl(a(11))
     If rowHours > 0 Then wsPlan.Cells(rowHours, CLng(a(2))).Value2 = CDbl(liveHours(UCase$(CStr(a(4)))))
+    WriteCandidateHoursPanel wsPlan, CStr(a(1)), CStr(a(4)), CLng(a(2)), CDbl(liveHours(UCase$(CStr(a(4)))))
     undoneItem = a
     UndoLastAssignment = True
+End Function
+
+Private Sub WriteCandidateHoursPanel(ByVal wsPlan As Worksheet, ByVal groupName As String, ByVal candId As String, ByVal planCol As Long, ByVal hoursVal As Double)
+    Dim lastGroupRow As Long
+    Dim rowName As Long, rowHours As Long
+    Dim rowCand As Long
+    Dim candLabel As String
+
+    lastGroupRow = GetGroupLastPlanRow(groupName)
+    If lastGroupRow <= 0 Then Exit Sub
+
+    rowName = lastGroupRow + 2
+    rowHours = lastGroupRow + 3
+    rowCand = FindIdRow(wsPlan, candId)
+    candLabel = candId
+    If rowCand > 0 Then
+        If Len(Trim$(CStr(wsPlan.Cells(rowCand, 2).Value2))) > 0 Then
+            candLabel = candId & " - " & CStr(wsPlan.Cells(rowCand, 2).Value2)
+        End If
+    End If
+
+    wsPlan.Cells(rowName, 1).Value2 = "Kandidat"
+    wsPlan.Cells(rowName, 2).Value2 = candLabel
+    wsPlan.Cells(rowHours, 1).Value2 = "URE"
+    wsPlan.Cells(rowHours, planCol).Value2 = hoursVal
+End Sub
+
+Private Function GetGroupLastPlanRow(ByVal groupName As String) As Long
+    Dim k As Variant
+    Dim p As Long
+    Dim grp As String
+
+    If mPlanRowMap Is Nothing Then Exit Function
+    For Each k In mPlanRowMap.Keys
+        p = InStr(1, CStr(k), "|", vbTextCompare)
+        If p > 0 Then
+            grp = Left$(CStr(k), p - 1)
+            If StrComp(grp, groupName, vbTextCompare) = 0 Then
+                If CLng(mPlanRowMap(k)) > GetGroupLastPlanRow Then
+                    GetGroupLastPlanRow = CLng(mPlanRowMap(k))
+                End If
+            End If
+        End If
+    Next k
 End Function
 
 
