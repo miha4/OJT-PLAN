@@ -329,6 +329,7 @@ End Function
 Private Function ResolvePhaseLive(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candRow As Long, ByVal colDate As Long, ByVal thresholds As Object, ByRef liveHours As Object, ByVal candId As String) As Long
     Dim key As String
     Dim baseHours As Double
+    Dim reserveHours As Double
 
     key = UCase$(candId)
     If Not liveHours.Exists(key) Then
@@ -336,7 +337,8 @@ Private Function ResolvePhaseLive(ByVal wsSrc As Worksheet, ByVal g As Variant, 
         liveHours.Add key, baseHours
     End If
 
-    ResolvePhaseLive = ResolvePhaseFromHours(CDbl(liveHours(key)), thresholds, GetTrackType(CStr(g(giGroupName))))
+    reserveHours = ShiftHoursForDate(wsSrc, g, colDate)
+    ResolvePhaseLive = ResolvePhaseFromHours(CDbl(liveHours(key)), thresholds, GetTrackType(CStr(g(giGroupName))), reserveHours)
 End Function
 
 Private Sub IncrementLiveHours(ByRef liveHours As Object, ByVal candId As String, ByVal addHours As Double)
@@ -360,25 +362,37 @@ Private Function ShiftHoursForDate(ByVal wsSrc As Worksheet, ByVal g As Variant,
     ShiftHoursForDate = 8#
 End Function
 
-Private Function ResolvePhaseFromHours(ByVal totalHours As Double, ByVal thresholds As Object, ByVal trackType As String) As Long
+Private Function ResolvePhaseFromHours(ByVal totalHours As Double, ByVal thresholds As Object, ByVal trackType As String, Optional ByVal reserveHours As Double = 0#) As Long
     Dim t As Variant
     Dim app As Variant
     Dim baseBeforeTrack As Double
-    Dim reserve As Double
+    Dim trackHours As Double
+    Dim phase1Limit As Double
+    Dim phase2Limit As Double
     
     t = thresholds(trackType)
     If thresholds.Exists("APP") Then app = thresholds("APP")
-    reserve = 8#
-    
+
+    ' Ure v sledilniku so kumulativne.
+    ' Za APS/ACS najprej odštejemo APP (predhodni blok), nato fazo določimo na
+    ' urah znotraj izbranega tracka + rezerva ene izmene.
     If trackType = "APS" Or trackType = "ACS" Then
         baseBeforeTrack = CDbl(app(1)) + CDbl(app(2)) + CDbl(app(3))
     Else
         baseBeforeTrack = 0#
     End If
+    trackHours = totalHours - baseBeforeTrack
+    If trackHours < 0# Then trackHours = 0#
 
-    If totalHours < (baseBeforeTrack + CDbl(t(1)) + reserve) Then
+    phase1Limit = CDbl(t(1))
+    phase2Limit = phase1Limit + CDbl(t(2))
+
+    ' Konzervativnost uporabimo samo pri prehodu iz faze 2 v 3.
+    ' Prehod iz faze 1 v 2 ostane na dejanski meji phase1Limit,
+    ' da kandidatov (npr. 73 ur v APS) ne vrača nazaj v fazo 1.
+    If trackHours < phase1Limit Then
         ResolvePhaseFromHours = 1
-    ElseIf totalHours < (baseBeforeTrack + CDbl(t(1)) + CDbl(t(2)) - reserve) Then
+    ElseIf trackHours < (phase2Limit - reserveHours) Then
         ResolvePhaseFromHours = 2
     Else
         ResolvePhaseFromHours = 3
