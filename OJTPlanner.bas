@@ -172,6 +172,7 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
             Set availableInstructors = GetAvailableInstructors(wsSrc, g, rowId - 1, colDate, candPhase)
 
             If availableInstructors.Count > 0 Then
+                HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, True
                 If PromptAssignmentUnified(wsSrc, g, rowId, colDate, candPhase, availableInstructors, chosenInstr, shiftCode, liveHours, candId) Then
                     Dim addH As Double
                     addH = ShiftHoursForDate(wsSrc, g, colDate)
@@ -182,9 +183,11 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
                     itm = CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), colDate, candId, rowId, chosenInstr, shiftCode, instrSrcRow, CDbl(liveHours(UCase$(candId))), addH)
                     assignments.Add itm
                     ApplySingleAssignment wsPlanOut, itm
+                    HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, False
                     RefreshPlanView wsPlanOut
                     history.Add itm
                 ElseIf UCase$(chosenInstr) = "__BACK__" Then
+                    HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, False
                     Dim undone As Variant
                     If UndoLastAssignment(wsPlanOut, history, assignments, liveHours, undone) Then
                         If CStr(undone(1)) = CStr(g(giGroupName)) Then
@@ -219,7 +222,10 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
                     chosenInstr = ""
                     GoTo NextCandidate
                 ElseIf UCase$(chosenInstr) = "__END__" Then
+                    HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, False
                     Exit Sub
+                Else
+                    HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, False
                 End If
             End If
 NextCandidate:
@@ -232,6 +238,7 @@ End Sub
 Private Function PromptAssignmentUnified(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candRow As Long, ByVal colDate As Long, ByVal phase As Long, ByVal instrList As Collection, ByRef chosenInstr As String, ByRef shiftCode As String, ByRef liveHours As Object, ByVal candId As String) As Boolean
     Dim msg As String, inputText As Variant, parts() As String
     Dim i As Long, idx As Long
+    Dim defaultShift As String
 
     msg = "Skupina: " & CStr(g(giGroupName)) & vbCrLf & _
           "**DATUM**: " & Format$(wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, "dd.mm.") & vbCrLf & _
@@ -244,7 +251,8 @@ Private Function PromptAssignmentUnified(ByVal wsSrc As Worksheet, ByVal g As Va
     Next i
     msg = msg & vbCrLf & "Vnos: indeks;izmena (npr 1;A9)" & vbCrLf & "0 = preskoči, B = nazaj, K = končaj"
 
-    inputText = Application.InputBox(msg, "OJT dodelitev", Type:=2)
+    defaultShift = GetCurrentShiftInputHint(CStr(wsSrc.Cells(candRow, colDate).Value2))
+    inputText = Application.InputBox(msg, "OJT dodelitev", IIf(Len(defaultShift) > 0, "1;" & defaultShift, ""), Type:=2)
     If inputText = False Then Exit Function
     inputText = UCase$(Trim$(CStr(inputText)))
     If inputText = "" Or inputText = "0" Then Exit Function
@@ -261,6 +269,29 @@ Private Function PromptAssignmentUnified(ByVal wsSrc As Worksheet, ByVal g As Va
     If Len(shiftCode) = 0 Then MsgBox "Manjka izmena.", vbExclamation: Exit Function
     PromptAssignmentUnified = True
 End Function
+
+Private Function GetCurrentShiftInputHint(ByVal rawValue As String) As String
+    Dim v As String
+    v = Trim$(rawValue)
+    If Len(v) = 0 Then Exit Function
+    If Right$(v, 1) = "s" Or Right$(v, 1) = "i" Then
+        v = Left$(v, Len(v) - 1)
+    End If
+    GetCurrentShiftInputHint = Trim$(v)
+End Function
+
+Private Sub HighlightPlanCell(ByVal wsPlan As Worksheet, ByVal g As Variant, ByVal srcRow As Long, ByVal srcCol As Long, ByVal fallbackId As String, ByVal active As Boolean)
+    Dim rowPlan As Long
+    Dim colPlan As Long
+    rowPlan = GetPlanRowFromSource(CStr(g(giGroupName)), srcRow, wsPlan, fallbackId)
+    colPlan = 2 + (srcCol - CLng(g(giPlanColStart)) + 1)
+    If rowPlan <= 0 Or colPlan <= 0 Then Exit Sub
+    If active Then
+        wsPlan.Cells(rowPlan, colPlan).Font.Color = RGB(255, 0, 0)
+    Else
+        wsPlan.Cells(rowPlan, colPlan).Font.Color = RGB(0, 0, 0)
+    End If
+End Sub
 
 Private Sub ApplySingleAssignment(ByVal wsPlan As Worksheet, ByVal a As Variant)
     Dim rowCand As Long, rowInstr As Long
@@ -403,10 +434,11 @@ Private Function ResolvePhaseFromHours(ByVal totalHours As Double, ByVal thresho
     phase1Limit = CDbl(t(1))
     phase2Limit = phase1Limit + CDbl(t(2))
 
-    ' Konzervativnost uporabimo samo pri prehodu iz faze 2 v 3.
-    ' Prehod iz faze 1 v 2 ostane na dejanski meji phase1Limit,
-    ' da kandidatov (npr. 73 ur v APS) ne vrača nazaj v fazo 1.
-    If trackHours < phase1Limit Then
+    ' Konzervativno planiranje:
+    ' - prehod 1 -> 2 zamaknemo za eno izmeno (reserveHours),
+    '   da kandidat ostane še en termin pri primarnih inštruktorjih.
+    ' - prehod 2 -> 3 ostane konservativen kot prej.
+    If trackHours < (phase1Limit + reserveHours) Then
         ResolvePhaseFromHours = 1
     ElseIf trackHours < (phase2Limit - reserveHours) Then
         ResolvePhaseFromHours = 2
