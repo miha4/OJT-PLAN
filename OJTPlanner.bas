@@ -149,6 +149,7 @@ End Sub
 
 Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Worksheet, ByVal g As Variant, ByVal thresholds As Object, ByRef assignments As Collection, ByRef liveHours As Object, ByVal wsPlanOut As Worksheet, ByRef history As Collection)
     Dim rowId As Long, colDate As Long
+    Dim rowStart As Long, rowEnd As Long, colStart As Long, colEnd As Long
     Dim candId As String
     Dim candPhase As Long
     Dim cellValue As String
@@ -156,9 +157,22 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
     Dim chosenInstr As String
     Dim shiftCode As String
     Dim hoursRow As Long
+    Dim undone As Variant
 
-    For colDate = CLng(g(giPlanColStart)) To CLng(g(giPlanColEnd))
-        For rowId = CLng(g(giIdRowStart)) To CLng(g(giIdRowEnd))
+    rowStart = CLng(g(giIdRowStart))
+    rowEnd = CLng(g(giIdRowEnd))
+    colStart = CLng(g(giPlanColStart))
+    colEnd = CLng(g(giPlanColEnd))
+    rowId = rowStart
+    colDate = colStart
+
+    Do While colDate <= colEnd
+        If rowId > rowEnd Then
+            rowId = rowStart
+            colDate = colDate + 1
+            GoTo ContinueLoop
+        End If
+
             cellValue = UCase$(Trim$(CStr(wsSrc.Cells(rowId, colDate).Value2)))
             If cellValue <> "XS" Then GoTo NextCandidate
 
@@ -173,6 +187,7 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
 
             If availableInstructors.Count > 0 Then
                 HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, True
+                RefreshPlanView wsPlanOut
                 If PromptAssignmentUnified(wsSrc, g, rowId, colDate, candPhase, availableInstructors, chosenInstr, shiftCode, liveHours, candId) Then
                     Dim addH As Double
                     addH = ShiftHoursForDate(wsSrc, g, colDate)
@@ -188,34 +203,13 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
                     history.Add itm
                 ElseIf UCase$(chosenInstr) = "__BACK__" Then
                     HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, False
-                    Dim undone As Variant
                     If UndoLastAssignment(wsPlanOut, history, assignments, liveHours, undone) Then
                         If CStr(undone(1)) = CStr(g(giGroupName)) Then
-                            Dim backCol As Long, backRow As Long, backCandId As String, backPhase As Long
-                            Dim backAvail As Collection, backShift As String, backInstr As String
-                            backCol = CLng(undone(3))
-                            backRow = CLng(undone(6))
-                            backCandId = CStr(undone(4))
-                            hoursRow = FindHoursRowById(wsSrc, g, backCandId)
-                            If hoursRow > 0 Then
-                                backPhase = ResolvePhaseLive(wsSrc, g, hoursRow, backCol, thresholds, liveHours, backCandId)
-                                Set backAvail = GetAvailableInstructors(wsSrc, g, backRow - 1, backCol, backPhase)
-                                If backAvail.Count > 0 Then
-                                    If PromptAssignmentUnified(wsSrc, g, backRow, backCol, backPhase, backAvail, backInstr, backShift, liveHours, backCandId) Then
-                                        Dim backAddH As Double, backInstrSrcRow As Long, backItem As Variant
-                                        backAddH = ShiftHoursForDate(wsSrc, g, backCol)
-                                        IncrementLiveHours liveHours, backCandId, backAddH
-                                        backInstrSrcRow = FindSourceRowById(wsSrc, g, backInstr)
-                                        backItem = CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), backCol).Value2, 2 + (backCol - CLng(g(giPlanColStart)) + 1), backCol, backCandId, backRow, backInstr, backShift, backInstrSrcRow, CDbl(liveHours(UCase$(backCandId))), backAddH)
-                                        assignments.Add backItem
-                                        ApplySingleAssignment wsPlanOut, backItem
-                                        history.Add backItem
-                                    End If
-                                End If
-                            End If
-                            rowId = rowId - 1
-                        Else
-                            rowId = rowId - 1
+                            colDate = CLng(undone(3))
+                            rowId = CLng(undone(6))
+                            RefreshPlanView wsPlanOut
+                            chosenInstr = ""
+                            GoTo ContinueLoop
                         End If
                     End If
                     RefreshPlanView wsPlanOut
@@ -229,8 +223,9 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
                 End If
             End If
 NextCandidate:
-        Next rowId
-    Next colDate
+        rowId = rowId + 1
+ContinueLoop:
+    Loop
 End Sub
 
 
