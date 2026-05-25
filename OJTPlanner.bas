@@ -387,7 +387,10 @@ Private Function ResolvePhaseFromHours(ByVal totalHours As Double, ByVal thresho
     phase1Limit = CDbl(t(1))
     phase2Limit = phase1Limit + CDbl(t(2))
 
-    If trackHours < (phase1Limit + reserveHours) Then
+    ' Konzervativnost uporabimo samo pri prehodu iz faze 2 v 3.
+    ' Prehod iz faze 1 v 2 ostane na dejanski meji phase1Limit,
+    ' da kandidatov (npr. 73 ur v APS) ne vrača nazaj v fazo 1.
+    If trackHours < phase1Limit Then
         ResolvePhaseFromHours = 1
     ElseIf trackHours < (phase2Limit - reserveHours) Then
         ResolvePhaseFromHours = 2
