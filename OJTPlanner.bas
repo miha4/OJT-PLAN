@@ -1,4 +1,3 @@
-Attribute VB_Name = "OJTPlanner"
 Option Explicit
 
 Private Const SETTINGS_SHEET As String = "Nastavitve"
@@ -367,18 +366,35 @@ Private Function ResolvePhaseFromHours(ByVal totalHours As Double, ByVal thresho
     Dim app As Variant
     Dim baseBeforeTrack As Double
     Dim trackHours As Double
+    Dim appTotal As Double
     Dim phase1Limit As Double
     Dim phase2Limit As Double
     
-    t = thresholds(trackType)
-    If thresholds.Exists("APP") Then app = thresholds("APP")
+    If trackType = "ACS" And thresholds.Exists("APP_ACS") Then
+        app = thresholds("APP_ACS")
+    ElseIf thresholds.Exists("APP") Then
+        app = thresholds("APP")
+    End If
+    appTotal = CDbl(app(1)) + CDbl(app(2)) + CDbl(app(3))
 
     ' Ure v sledilniku so kumulativne.
-    ' Za APS/ACS najprej odštejemo APP (predhodni blok), nato fazo določimo na
-    ' urah znotraj izbranega tracka + rezerva ene izmene.
+    ' Kandidat znotraj APS/ACS skupine je lahko še vedno v APP bloku.
+    ' Če skupni total še ni presegel APP bloka, fazo določamo po APP pravilih.
+    ' Ko APP blok preseže, za APS/ACS odštejemo APP in fazo določamo po track urah.
     If trackType = "APS" Or trackType = "ACS" Then
-        baseBeforeTrack = CDbl(app(1)) + CDbl(app(2)) + CDbl(app(3))
+        If totalHours < appTotal Then
+            If trackType = "ACS" And thresholds.Exists("APP_ACS") Then
+                t = thresholds("APP_ACS")
+            Else
+                t = thresholds("APP")
+            End If
+            baseBeforeTrack = 0#
+        Else
+            t = thresholds(trackType)
+            baseBeforeTrack = appTotal
+        End If
     Else
+        t = thresholds(trackType)
         baseBeforeTrack = 0#
     End If
     trackHours = totalHours - baseBeforeTrack
@@ -829,6 +845,7 @@ Private Function LoadThresholds(ByVal wsSettings As Worksheet) As Object
     Dim aps(1 To 3) As Double
     Dim acs(1 To 3) As Double
     Dim app(1 To 3) As Double
+    Dim appAcs(1 To 3) As Double
 
     Set d = CreateObject("Scripting.Dictionary")
 
@@ -844,9 +861,14 @@ Private Function LoadThresholds(ByVal wsSettings As Worksheet) As Object
     acs(2) = CDbl(Val(wsSettings.Cells(15, 11).Value2))
     acs(3) = CDbl(Val(wsSettings.Cells(16, 11).Value2))
 
+    appAcs(1) = CDbl(Val(wsSettings.Cells(11, 11).Value2))
+    appAcs(2) = CDbl(Val(wsSettings.Cells(12, 11).Value2))
+    appAcs(3) = CDbl(Val(wsSettings.Cells(13, 11).Value2))
+
     d.Add "APP", app
     d.Add "APS", aps
     d.Add "ACS", acs
+    d.Add "APP_ACS", appAcs
 
     Set LoadThresholds = d
 End Function
