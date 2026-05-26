@@ -4,6 +4,8 @@ Private Const SETTINGS_SHEET As String = "Nastavitve"
 Private Const PLAN_SHEET As String = "OJT Plan"
 Private Const SETTINGS_GROUP_ROW As Long = 3
 Private Const SETTINGS_FIRST_GROUP_COL As Long = 3 'C
+Private Const GROUP_RESERVED_BLANK_ROWS As Long = 2
+Private Const GROUP_RESERVED_HOURS_ROWS As Long = 5
 Private mPlanRowMap As Object
 Private mCandidatePanelIndex As Object
 
@@ -673,6 +675,9 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
     Dim seenId As Object
     Dim includeRows() As Boolean
     Dim srcId As String
+    Dim actualEndRow As Long
+    Dim reservedEndRow As Long
+    Dim scheduleRowsReserved As Long
 
     idCol = CLng(g(giIdCol))
     nameCol = idCol + 1
@@ -752,10 +757,18 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
         wsPlan.Cells(outRow + rowCount + 2, 3).Resize(hrRows, planCols).Value2 = wsSrc.Range(wsSrc.Cells(hrS, planStartCol), wsSrc.Cells(hrE, planEndCol)).Value2
         wsPlan.Cells(outRow + rowCount + 2, 1).Resize(hrRows, planCols + 2).Font.Bold = True
         wsPlan.Cells(outRow + rowCount + 2, 1).Resize(hrRows, planCols + 2).Font.Color = RGB(255, 0, 0)
-        CopyGroupToPlan = outRow + rowCount + hrRows + 4
+        actualEndRow = outRow + rowCount + hrRows + GROUP_RESERVED_BLANK_ROWS + 1
     Else
-        CopyGroupToPlan = outRow + rowCount + 2
+        actualEndRow = outRow + rowCount
     End If
+
+    scheduleRowsReserved = (idRowEnd - idRowStart + 1) + 3 ' naslov skupine + 2 glavi + vrstice urnika
+    reservedEndRow = outRow + scheduleRowsReserved + _
+                     GROUP_RESERVED_BLANK_ROWS + _
+                     GROUP_RESERVED_HOURS_ROWS + _
+                     GROUP_RESERVED_BLANK_ROWS - 1
+
+    CopyGroupToPlan = WorksheetFunction.Max(actualEndRow, reservedEndRow) + 1
 End Function
 
 Private Function OpenTrackerWorkbook(ByVal trackerPath As String, ByRef closeOnExit As Boolean) As Workbook
