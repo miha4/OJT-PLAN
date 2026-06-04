@@ -47,7 +47,7 @@ Public Sub Build_OJT_Plan()
 
     Set plannerWb = ThisWorkbook
     trackerPath = GetTrackerPath(plannerWb.Worksheets(SETTINGS_SHEET))
-    Set groups = LoadGroups(plannerWb.Worksheets(SETTINGS_SHEET))
+    Set groups = LoadGroups(plannerWb.Worksheets(SETTINGS_SHEET), True)
     If groups.Count = 0 Then Err.Raise 9001, , "V Nastavitve (vrstica 3, od stolpca C naprej) ni nobene skupine."
 
     EnsurePlanSheet plannerWb
@@ -97,6 +97,12 @@ Public Sub Planiraj_OJT()
     Dim history As Collection
     Dim i As Long
     Dim g As Variant
+    Dim activeGroupsCount As Long
+    Dim totalPrompts As Long
+    Dim groupXs As Long
+    Dim groupMissingHours As Long
+    Dim groupNoInstructors As Long
+    Dim diagnostics As String
 
     On Error GoTo EH
     Application.ScreenUpdating = False
@@ -105,7 +111,7 @@ Public Sub Planiraj_OJT()
     Set plannerWb = ThisWorkbook
     Set wsSettings = plannerWb.Worksheets(SETTINGS_SHEET)
     trackerPath = GetTrackerPath(wsSettings)
-    Set groups = LoadGroups(wsSettings)
+    Set groups = LoadGroups(wsSettings, True)
     If groups.Count = 0 Then Err.Raise 9001, , "V Nastavitve (vrstica 3, od stolpca C naprej) ni nobene skupine."
     Set thresholds = LoadThresholds(wsSettings)
 
@@ -129,10 +135,31 @@ Public Sub Planiraj_OJT()
     Set history = New Collection
     For i = 1 To groups.Count
         g = groups(i)
-        CollectAssignments GetWorksheetOrFail(trackerWb, CStr(g(giSrcSheetName))), wsPlan, g, thresholds, assignments, liveHours, wsPlan, history
+        If IsGroupPlanningEnabled(g) Then
+            activeGroupsCount = activeGroupsCount + 1
+            groupXs = 0
+            groupMissingHours = 0
+            groupNoInstructors = 0
+            Debug.Print "[OJT] Planiram group: " & CStr(g(giGroupName)) & " (PLANIRAJ=" & CStr(g(giPlanEnabled)) & ")"
+            totalPrompts = totalPrompts + CollectAssignments( _
+                GetWorksheetOrFail(trackerWb, CStr(g(giSrcSheetName))), _
+                wsPlan, g, thresholds, assignments, liveHours, wsPlan, history, _
+                groupXs, groupMissingHours, groupNoInstructors)
+            diagnostics = diagnostics & CStr(g(giGroupName)) & ": Xs=" & groupXs & ", brez vrstice ur=" & groupMissingHours & ", brez inštruktorjev=" & groupNoInstructors & vbCrLf
+        Else
+            Debug.Print "[OJT] Preskočim group: " & CStr(g(giGroupName)) & " (PLANIRAJ=" & CStr(g(giPlanEnabled)) & ")"
+        End If
     Next i
 
-    MsgBox "Zaključeno. Dodelitev: " & assignments.Count, vbInformation
+    If activeGroupsCount = 0 Then
+        MsgBox "Ni aktivnih skupin za planiranje. V vrstici PLANIRAJ nastavi DA pri skupini, ki jo želiš planirati.", vbExclamation
+    ElseIf totalPrompts = 0 Then
+        MsgBox "Zaključeno. Dodelitev: 0" & vbCrLf & vbCrLf & _
+               "Makro ni našel nobenega kandidata, za katerega bi lahko ponudil izbor izmene." & vbCrLf & _
+               "Preveri diagnostiko po skupinah:" & vbCrLf & diagnostics, vbExclamation
+    Else
+        MsgBox "Zaključeno. Dodelitev: " & assignments.Count, vbInformation
+    End If
 
 
 Cleanup:
@@ -151,7 +178,18 @@ EH:
     Resume Cleanup
 End Sub
 
-Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Worksheet, ByVal g As Variant, ByVal thresholds As Object, ByRef assignments As Collection, ByRef liveHours As Object, ByVal wsPlanOut As Worksheet, ByRef history As Collection)
+Private Function CollectAssignments( _
+    ByVal wsSrc As Worksheet, _
+    ByVal wsPlan As Worksheet, _
+    ByVal g As Variant, _
+    ByVal thresholds As Object, _
+    ByRef assignments As Collection, _
+    ByRef liveHours As Object, _
+    ByVal wsPlanOut As Worksheet, _
+    ByRef history As Collection, _
+    ByRef foundXs As Long, _
+    ByRef missingHoursRows As Long, _
+    ByRef noInstructorCandidates As Long) As Long
     Dim rowId As Long, colDate As Long
     Dim rowStart As Long, rowEnd As Long, colStart As Long, colEnd As Long
     Dim candId As String
@@ -165,7 +203,7 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
 
     rowStart = CLng(g(giIdRowStart))
     rowEnd = CLng(g(giIdRowEnd))
-    colStart = CLng(g(giPlanColStart))
+    colStart = GetPlanningStartColumn(g)
     colEnd = CLng(g(giPlanColEnd))
     rowId = rowStart
     colDate = colStart
@@ -177,19 +215,26 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
             GoTo ContinueLoop
         End If
 
-            cellValue = UCase$(Trim$(CStr(wsSrc.Cells(rowId, colDate).Value2)))
+            cellValue = NormalizeScheduleCode(wsSrc.Cells(rowId, colDate).Value2)
             If cellValue <> "XS" Then GoTo NextCandidate
 
+            foundXs = foundXs + 1
             candId = Trim$(CStr(wsSrc.Cells(rowId, CLng(g(giIdCol))).Value2))
             If Len(candId) = 0 Then GoTo NextCandidate
 
             hoursRow = FindHoursRowById(wsSrc, g, candId)
-            If hoursRow = 0 Then GoTo NextCandidate
-
-            candPhase = ResolvePhaseLive(wsSrc, g, hoursRow, colDate, thresholds, liveHours, candId)
+            If hoursRow = 0 Then
+                missingHoursRows = missingHoursRows + 1
+                EnsureLiveHours liveHours, candId, 0#
+                candPhase = ResolvePhaseFromHours(0#, thresholds, GetTrackType(CStr(g(giGroupName))), ShiftHoursForDate(wsSrc, g, colDate))
+                Debug.Print "[OJT] Kandidat " & candId & " nima vrstice ur; nadaljujem z 0 urami. Skupina: " & CStr(g(giGroupName))
+            Else
+                candPhase = ResolvePhaseLive(wsSrc, g, hoursRow, colDate, thresholds, liveHours, candId)
+            End If
             Set availableInstructors = GetAvailableInstructors(wsSrc, g, rowId - 1, colDate, candPhase)
 
             If availableInstructors.Count > 0 Then
+                CollectAssignments = CollectAssignments + 1
                 HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, True
                 HighlightInstructorCandidates wsPlanOut, wsSrc, g, availableInstructors, colDate, True
                 RefreshPlanView wsPlanOut
@@ -225,17 +270,20 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
                 ElseIf UCase$(chosenInstr) = "__END__" Then
                     HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, False
                     HighlightInstructorCandidates wsPlanOut, wsSrc, g, availableInstructors, colDate, False
-                    Exit Sub
+                    Exit Function
                 Else
                     HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, False
                     HighlightInstructorCandidates wsPlanOut, wsSrc, g, availableInstructors, colDate, False
                 End If
+            Else
+                noInstructorCandidates = noInstructorCandidates + 1
+                Debug.Print "[OJT] Kandidat " & candId & " ima Xs, vendar ni prostih inštruktorjev za fazo " & candPhase & ". Skupina: " & CStr(g(giGroupName))
             End If
 NextCandidate:
         rowId = rowId + 1
 ContinueLoop:
     Loop
-End Sub
+End Function
 
 
 
@@ -442,6 +490,16 @@ Private Function FindHoursRowById(ByVal wsSrc As Worksheet, ByVal g As Variant, 
     Next r
 End Function
 
+Private Sub EnsureLiveHours(ByRef liveHours As Object, ByVal candId As String, ByVal defaultHours As Double)
+    Dim key As String
+    key = UCase$(candId)
+    If Not liveHours.Exists(key) Then liveHours.Add key, defaultHours
+End Sub
+
+Private Function NormalizeScheduleCode(ByVal rawValue As Variant) As String
+    NormalizeScheduleCode = UCase$(Replace(Trim$(Replace(CStr(rawValue), Chr$(160), " ")), " ", ""))
+End Function
+
 Private Function ResolvePhaseLive(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candRow As Long, ByVal colDate As Long, ByVal thresholds As Object, ByRef liveHours As Object, ByVal candId As String) As Long
     Dim key As String
     Dim baseHours As Double
@@ -540,16 +598,16 @@ Private Function GetAvailableInstructors(ByVal wsSrc As Worksheet, ByVal g As Va
 
     If phase = 2 Then
         For r = CLng(g(giIdRowStart)) To CLng(g(giIdRowEnd))
-            v = UCase$(Trim$(CStr(wsSrc.Cells(r, colDate).Value2)))
+            v = NormalizeScheduleCode(wsSrc.Cells(r, colDate).Value2)
             If v = "X1" Or v = "X2" Or v = "X3" Then
                 c.Add Trim$(CStr(wsSrc.Cells(r, CLng(g(giIdCol))).Value2))
             End If
         Next r
     Else
-        v = UCase$(Trim$(CStr(wsSrc.Cells(tripleStartRow, colDate).Value2)))
+        v = NormalizeScheduleCode(wsSrc.Cells(tripleStartRow, colDate).Value2)
         If v = "X1" Or v = "X2" Or v = "X3" Then c.Add Trim$(CStr(wsSrc.Cells(tripleStartRow, CLng(g(giIdCol))).Value2))
 
-        v = UCase$(Trim$(CStr(wsSrc.Cells(tripleStartRow + 2, colDate).Value2)))
+        v = NormalizeScheduleCode(wsSrc.Cells(tripleStartRow + 2, colDate).Value2)
         If v = "X1" Or v = "X2" Or v = "X3" Then c.Add Trim$(CStr(wsSrc.Cells(tripleStartRow + 2, CLng(g(giIdCol))).Value2))
     End If
 
@@ -858,7 +916,7 @@ Private Function FindOpenWorkbook(ByVal fullPathOrUrl As String) As Workbook
     Next wb
 End Function
 
-Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
+Private Function LoadGroups(ByVal wsSettings As Worksheet, Optional ByVal includeDisabled As Boolean = False) As Collection
     Dim groups As New Collection
     Dim c As Long
     Dim lastCol As Long
@@ -903,13 +961,16 @@ Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
         g(giCandIdRowStart) = CLng(Val(wsSettings.Cells(15, c).Value2))
         g(giCandIdRowEnd) = CLng(Val(wsSettings.Cells(16, c).Value2))
         g(giPlanStartCol) = ColToNum(CStr(wsSettings.Cells(17, c).Value2))
-        planFlag = UCase$(Trim$(CStr(wsSettings.Cells(18, c).Value2)))
+        planFlag = NormalizePlanFlag(wsSettings.Cells(18, c).Value2)
+        If Not hasPlanToggle And Len(planFlag) = 0 Then planFlag = "DA"
         g(giPlanEnabled) = planFlag
         g(giHoursRowStart) = CLng(Val(wsSettings.Cells(19, c).Value2))
         g(giHoursRowEnd) = CLng(Val(wsSettings.Cells(20, c).Value2))
 
-        If hasPlanToggle Then
-            If planFlag <> "DA" Then GoTo NextCol
+        If Not includeDisabled Then
+            If hasPlanToggle Then
+                If planFlag <> "DA" Then GoTo NextCol
+            End If
         End If
 
         groups.Add g
@@ -924,11 +985,38 @@ NextCol:
     Set LoadGroups = groups
 End Function
 
+
+Private Function IsGroupPlanningEnabled(ByVal g As Variant) As Boolean
+    Dim planFlag As String
+    planFlag = UCase$(Trim$(Replace(CStr(g(giPlanEnabled)), Chr$(160), " ")))
+
+    IsGroupPlanningEnabled = (planFlag = "DA")
+End Function
+
+Private Function NormalizePlanFlag(ByVal rawValue As Variant) As String
+    NormalizePlanFlag = UCase$(Trim$(Replace(CStr(rawValue), Chr$(160), " ")))
+End Function
+
+Private Function GetPlanningStartColumn(ByVal g As Variant) As Long
+    Dim configuredStart As Long
+    Dim planStart As Long
+    Dim planEnd As Long
+
+    configuredStart = CLng(g(giPlanStartCol))
+    planStart = CLng(g(giPlanColStart))
+    planEnd = CLng(g(giPlanColEnd))
+
+    If configuredStart < planStart Then configuredStart = planStart
+    If configuredStart > planEnd Then configuredStart = planStart
+
+    GetPlanningStartColumn = configuredStart
+End Function
+
 Private Function HasAnyPlanToggle(ByVal ws As Worksheet, ByVal lastCol As Long) As Boolean
     Dim c As Long
     Dim v As String
     For c = SETTINGS_FIRST_GROUP_COL To lastCol
-        v = UCase$(Trim$(CStr(ws.Cells(18, c).Value2)))
+        v = NormalizePlanFlag(ws.Cells(18, c).Value2)
         If v = "DA" Or v = "NE" Then
             HasAnyPlanToggle = True
             Exit Function
