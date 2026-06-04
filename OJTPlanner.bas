@@ -47,7 +47,7 @@ Public Sub Build_OJT_Plan()
 
     Set plannerWb = ThisWorkbook
     trackerPath = GetTrackerPath(plannerWb.Worksheets(SETTINGS_SHEET))
-    Set groups = LoadGroups(plannerWb.Worksheets(SETTINGS_SHEET))
+    Set groups = LoadGroups(plannerWb.Worksheets(SETTINGS_SHEET), True)
     If groups.Count = 0 Then Err.Raise 9001, , "V Nastavitve (vrstica 3, od stolpca C naprej) ni nobene skupine."
 
     EnsurePlanSheet plannerWb
@@ -105,7 +105,7 @@ Public Sub Planiraj_OJT()
     Set plannerWb = ThisWorkbook
     Set wsSettings = plannerWb.Worksheets(SETTINGS_SHEET)
     trackerPath = GetTrackerPath(wsSettings)
-    Set groups = LoadGroups(wsSettings)
+    Set groups = LoadGroups(wsSettings, True)
     If groups.Count = 0 Then Err.Raise 9001, , "V Nastavitve (vrstica 3, od stolpca C naprej) ni nobene skupine."
     Set thresholds = LoadThresholds(wsSettings)
 
@@ -129,7 +129,12 @@ Public Sub Planiraj_OJT()
     Set history = New Collection
     For i = 1 To groups.Count
         g = groups(i)
-        CollectAssignments GetWorksheetOrFail(trackerWb, CStr(g(giSrcSheetName))), wsPlan, g, thresholds, assignments, liveHours, wsPlan, history
+        If IsGroupPlanningEnabled(g) Then
+            Debug.Print "[OJT] Planiram group: " & CStr(g(giGroupName)) & " (PLANIRAJ=" & CStr(g(giPlanEnabled)) & ")"
+            CollectAssignments GetWorksheetOrFail(trackerWb, CStr(g(giSrcSheetName))), wsPlan, g, thresholds, assignments, liveHours, wsPlan, history
+        Else
+            Debug.Print "[OJT] Preskočim group: " & CStr(g(giGroupName)) & " (PLANIRAJ=" & CStr(g(giPlanEnabled)) & ")"
+        End If
     Next i
 
     MsgBox "Zaključeno. Dodelitev: " & assignments.Count, vbInformation
@@ -165,7 +170,7 @@ Private Sub CollectAssignments(ByVal wsSrc As Worksheet, ByVal wsPlan As Workshe
 
     rowStart = CLng(g(giIdRowStart))
     rowEnd = CLng(g(giIdRowEnd))
-    colStart = CLng(g(giPlanColStart))
+    colStart = GetPlanningStartColumn(g)
     colEnd = CLng(g(giPlanColEnd))
     rowId = rowStart
     colDate = colStart
@@ -858,7 +863,7 @@ Private Function FindOpenWorkbook(ByVal fullPathOrUrl As String) As Workbook
     Next wb
 End Function
 
-Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
+Private Function LoadGroups(ByVal wsSettings As Worksheet, Optional ByVal includeDisabled As Boolean = False) As Collection
     Dim groups As New Collection
     Dim c As Long
     Dim lastCol As Long
@@ -903,13 +908,16 @@ Private Function LoadGroups(ByVal wsSettings As Worksheet) As Collection
         g(giCandIdRowStart) = CLng(Val(wsSettings.Cells(15, c).Value2))
         g(giCandIdRowEnd) = CLng(Val(wsSettings.Cells(16, c).Value2))
         g(giPlanStartCol) = ColToNum(CStr(wsSettings.Cells(17, c).Value2))
-        planFlag = UCase$(Trim$(CStr(wsSettings.Cells(18, c).Value2)))
+        planFlag = NormalizePlanFlag(wsSettings.Cells(18, c).Value2)
+        If Not hasPlanToggle And Len(planFlag) = 0 Then planFlag = "DA"
         g(giPlanEnabled) = planFlag
         g(giHoursRowStart) = CLng(Val(wsSettings.Cells(19, c).Value2))
         g(giHoursRowEnd) = CLng(Val(wsSettings.Cells(20, c).Value2))
 
-        If hasPlanToggle Then
-            If planFlag <> "DA" Then GoTo NextCol
+        If Not includeDisabled Then
+            If hasPlanToggle Then
+                If planFlag <> "DA" Then GoTo NextCol
+            End If
         End If
 
         groups.Add g
@@ -924,11 +932,38 @@ NextCol:
     Set LoadGroups = groups
 End Function
 
+
+Private Function IsGroupPlanningEnabled(ByVal g As Variant) As Boolean
+    Dim planFlag As String
+    planFlag = UCase$(Trim$(Replace(CStr(g(giPlanEnabled)), Chr$(160), " ")))
+
+    IsGroupPlanningEnabled = (planFlag = "DA")
+End Function
+
+Private Function NormalizePlanFlag(ByVal rawValue As Variant) As String
+    NormalizePlanFlag = UCase$(Trim$(Replace(CStr(rawValue), Chr$(160), " ")))
+End Function
+
+Private Function GetPlanningStartColumn(ByVal g As Variant) As Long
+    Dim configuredStart As Long
+    Dim planStart As Long
+    Dim planEnd As Long
+
+    configuredStart = CLng(g(giPlanStartCol))
+    planStart = CLng(g(giPlanColStart))
+    planEnd = CLng(g(giPlanColEnd))
+
+    If configuredStart < planStart Then configuredStart = planStart
+    If configuredStart > planEnd Then configuredStart = planStart
+
+    GetPlanningStartColumn = configuredStart
+End Function
+
 Private Function HasAnyPlanToggle(ByVal ws As Worksheet, ByVal lastCol As Long) As Boolean
     Dim c As Long
     Dim v As String
     For c = SETTINGS_FIRST_GROUP_COL To lastCol
-        v = UCase$(Trim$(CStr(ws.Cells(18, c).Value2)))
+        v = NormalizePlanFlag(ws.Cells(18, c).Value2)
         If v = "DA" Or v = "NE" Then
             HasAnyPlanToggle = True
             Exit Function
