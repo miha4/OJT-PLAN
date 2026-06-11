@@ -24,5 +24,5 @@
 - Če aktivna skupina nima nobenega možnega predloga, zaključno okno pokaže diagnostiko po skupinah: koliko `Xs` je našel, koliko kandidatov nima vrstice ur in koliko jih nima prostega inštruktorja.
 - Vpisuje v `OJT Plan`, ob vsakem zagonu se list počisti.
 
-- Pri izpisu `PREDVIDENE URE` makro uporablja dejansko kumulativno vrstico ur (`URE (kopija)` oziroma nastavljeno območje `ZAČETNA/KONČNA VRSTICA UR`). Če je celica na izbrani datum prazna ali je na začetku planiranja relativno `0`, uporabi zadnjo znano kumulativno vrednost levo od tega datuma.
+- Pri izpisu `PREDVIDENE URE` makro uporablja dejansko kumulativno vrstico ur (`URE (kopija)` oziroma nastavljeno območje `ZAČETNA/KONČNA VRSTICA UR`). Vrstico zna najti po ID-ju kandidata ali po imenu, tudi če je v OJTrackerju označena kot `URE Ime Priimek`. Če je celica na izbrani datum prazna ali je na začetku planiranja relativno `0`, uporabi zadnjo znano kumulativno vrednost levo od tega datuma.
 - Komentarji se dodajo kot threaded comments.
