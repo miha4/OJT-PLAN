@@ -122,6 +122,8 @@ Public Sub Planiraj_OJT()
 
     Set trackerWb = OpenTrackerWorkbook(trackerPath, closeTrackerOnExit)
 
+    Set mPlanRowMap = CreateObject("Scripting.Dictionary")
+    Set mCandidatePanelIndex = CreateObject("Scripting.Dictionary")
     Dim nextOutRow As Long
     nextOutRow = 1
     For i = 1 To groups.Count
@@ -131,7 +133,6 @@ Public Sub Planiraj_OJT()
     Next i
 
     Set assignments = New Collection
-    Set mCandidatePanelIndex = CreateObject("Scripting.Dictionary")
     Set liveHours = CreateObject("Scripting.Dictionary")
     Set history = New Collection
     For i = 1 To groups.Count
@@ -1097,6 +1098,8 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
     idRowStart = CLng(g(giIdRowStart))
     idRowEnd = CLng(g(giIdRowEnd))
     planCols = planEndCol - planStartCol + 1
+
+    If mPlanRowMap Is Nothing Then Set mPlanRowMap = CreateObject("Scripting.Dictionary")
 
     wsPlan.Cells(outRow, 1).Value2 = CStr(g(giGroupName))
     wsPlan.Cells(outRow, 1).Font.Bold = True
