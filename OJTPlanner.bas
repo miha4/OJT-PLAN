@@ -200,6 +200,8 @@ Private Function CollectAssignments( _
     Dim shiftCode As String
     Dim hoursRow As Long
     Dim undone As Variant
+    Dim candName As String
+    Dim hoursRowCache As Object
 
     rowStart = CLng(g(giIdRowStart))
     rowEnd = CLng(g(giIdRowEnd))
@@ -207,6 +209,7 @@ Private Function CollectAssignments( _
     colEnd = CLng(g(giPlanColEnd))
     rowId = rowStart
     colDate = colStart
+    Set hoursRowCache = CreateObject("Scripting.Dictionary")
 
     Do While colDate <= colEnd
         If rowId > rowEnd Then
@@ -221,8 +224,9 @@ Private Function CollectAssignments( _
             foundXs = foundXs + 1
             candId = Trim$(CStr(wsSrc.Cells(rowId, CLng(g(giIdCol))).Value2))
             If Len(candId) = 0 Then GoTo NextCandidate
+            candName = Trim$(CStr(wsSrc.Cells(rowId, CLng(g(giIdCol)) + 1).Value2))
 
-            hoursRow = FindHoursRowById(wsSrc, g, candId)
+            hoursRow = GetCachedHoursRow(wsSrc, g, candId, candName, hoursRowCache)
             If hoursRow = 0 Then
                 missingHoursRows = missingHoursRows + 1
                 EnsureLiveHours liveHours, candId, 0#
@@ -480,28 +484,159 @@ Private Function FindSourceRowById(ByVal wsSrc As Worksheet, ByVal g As Variant,
     Next r
 End Function
 
-Private Function FindHoursRowById(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candId As String) As Long
-    FindHoursRowById = FindHoursRowByIdInRange(wsSrc, g, candId, CLng(g(giHoursRowStart)), CLng(g(giHoursRowEnd)))
-    If FindHoursRowById > 0 Then Exit Function
+Private Function GetCachedHoursRow(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candId As String, ByVal candName As String, ByRef hoursRowCache As Object) As Long
+    Dim key As String
+    key = NormalizeLookupText(candId) & "|" & NormalizeLookupText(candName)
 
-    ' Backward compatibility: older settings used the candidate-ID range for the
-    ' cumulative-hours rows. Prefer the explicit hours range above because those
-    ' are the rows copied to the red "URE (kopija)" section and contain the real
-    ' cumulative total from previous months.
-    FindHoursRowById = FindHoursRowByIdInRange(wsSrc, g, candId, CLng(g(giCandIdRowStart)), CLng(g(giCandIdRowEnd)))
+    If hoursRowCache Is Nothing Then Set hoursRowCache = CreateObject("Scripting.Dictionary")
+    If Not hoursRowCache.Exists(key) Then
+        hoursRowCache.Add key, FindHoursRowByCandidate(wsSrc, g, candId, candName)
+    End If
+
+    GetCachedHoursRow = CLng(hoursRowCache(key))
 End Function
 
-Private Function FindHoursRowByIdInRange(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candId As String, ByVal rowStart As Long, ByVal rowEnd As Long) As Long
+Private Function FindHoursRowByCandidate(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candId As String, ByVal candName As String) As Long
+    FindHoursRowByCandidate = FindHoursRowByCandidateInRange(wsSrc, g, candId, candName, CLng(g(giHoursRowStart)), CLng(g(giHoursRowEnd)), True)
+    If FindHoursRowByCandidate > 0 Then Exit Function
+
+    ' If settings point at the schedule rows, do not accept an ordinary candidate
+    ' row as a cumulative-hours row. Only explicit "URE <candidate>" labels are
+    ' safe outside the configured hours range.
+    FindHoursRowByCandidate = FindHoursRowByCandidateInRange(wsSrc, g, candId, candName, CLng(g(giCandIdRowStart)), CLng(g(giCandIdRowEnd)), False)
+    If FindHoursRowByCandidate > 0 Then Exit Function
+
+    FindHoursRowByCandidate = FindHoursRowByCandidateInUsedRange(wsSrc, candId, candName)
+End Function
+
+Private Function FindHoursRowByCandidateInRange(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candId As String, ByVal candName As String, ByVal rowStart As Long, ByVal rowEnd As Long, ByVal allowExactIdentity As Boolean) As Long
     Dim r As Long
+    Dim idCol As Long
+    Dim nameCol As Long
+    Dim idVal As Variant
+    Dim nameVal As Variant
 
     If rowStart <= 0 Or rowEnd < rowStart Then Exit Function
 
+    idCol = CLng(g(giIdCol))
+    nameCol = idCol + 1
+
     For r = rowStart To rowEnd
-        If UCase$(Trim$(CStr(wsSrc.Cells(r, CLng(g(giIdCol))).Value2))) = UCase$(candId) Then
-            FindHoursRowByIdInRange = r
+        idVal = wsSrc.Cells(r, idCol).Value2
+        nameVal = wsSrc.Cells(r, nameCol).Value2
+
+        If IsExplicitCandidateHoursLabel(idVal, candId, candName) Or _
+           IsExplicitCandidateHoursLabel(nameVal, candId, candName) Then
+            FindHoursRowByCandidateInRange = r
             Exit Function
         End If
+
+        If allowExactIdentity Then
+            If TextMatchesCandidate(idVal, candId, candName) Or _
+               TextMatchesCandidate(nameVal, candId, candName) Then
+                If RowLooksLikeCumulativeHours(wsSrc, g, r) Then
+                    FindHoursRowByCandidateInRange = r
+                    Exit Function
+                End If
+            End If
+        End If
     Next r
+End Function
+
+Private Function RowLooksLikeCumulativeHours(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal rowNumber As Long) As Boolean
+    Dim c As Long
+    Dim v As Variant
+    Dim numericCells As Long
+    Dim textCells As Long
+    Dim colStart As Long
+    Dim colEnd As Long
+
+    colStart = CLng(g(giPlanColStart))
+    colEnd = CLng(g(giPlanColEnd))
+    If colStart <= 0 Or colEnd < colStart Then Exit Function
+
+    For c = colStart To colEnd
+        v = wsSrc.Cells(rowNumber, c).Value2
+        If IsError(v) Then
+            textCells = textCells + 1
+            Exit For
+        ElseIf Len(Trim$(CStr(v))) > 0 Then
+            If IsNumeric(v) Then
+                numericCells = numericCells + 1
+            Else
+                textCells = textCells + 1
+                If textCells > 0 Then Exit For
+            End If
+        End If
+    Next c
+
+    RowLooksLikeCumulativeHours = (numericCells > 0 And textCells = 0)
+End Function
+
+Private Function FindHoursRowByCandidateInUsedRange(ByVal wsSrc As Worksheet, ByVal candId As String, ByVal candName As String) As Long
+    Dim cell As Range
+
+    On Error Resume Next
+    For Each cell In wsSrc.UsedRange.Cells
+        If IsExplicitCandidateHoursLabel(cell.Value2, candId, candName) Then
+            FindHoursRowByCandidateInUsedRange = cell.Row
+            Exit Function
+        End If
+    Next cell
+    On Error GoTo 0
+End Function
+
+Private Function TextMatchesCandidate(ByVal rawValue As Variant, ByVal candId As String, ByVal candName As String) As Boolean
+    Dim textValue As String
+    textValue = NormalizeLookupText(rawValue)
+    If Len(textValue) = 0 Then Exit Function
+
+    If Len(NormalizeLookupText(candId)) > 0 Then
+        If textValue = NormalizeLookupText(candId) Then
+            TextMatchesCandidate = True
+            Exit Function
+        End If
+    End If
+
+    If Len(NormalizeLookupText(candName)) > 0 Then
+        TextMatchesCandidate = (textValue = NormalizeLookupText(candName))
+    End If
+End Function
+
+Private Function IsExplicitCandidateHoursLabel(ByVal rawValue As Variant, ByVal candId As String, ByVal candName As String) As Boolean
+    Dim label As String
+    Dim candidatePart As String
+    Dim separator As String
+
+    label = NormalizeLookupText(rawValue)
+    If Len(label) < 4 Then Exit Function
+    If Left$(label, 3) <> "URE" Then Exit Function
+    separator = Mid$(label, 4, 1)
+    If separator <> " " And separator <> ":" And separator <> "-" And separator <> "." Then Exit Function
+
+    candidatePart = Trim$(Mid$(label, 4))
+    Do While Left$(candidatePart, 1) = ":" Or Left$(candidatePart, 1) = "-" Or Left$(candidatePart, 1) = "."
+        candidatePart = Trim$(Mid$(candidatePart, 2))
+    Loop
+
+    If Len(candidatePart) = 0 Then Exit Function
+    IsExplicitCandidateHoursLabel = TextMatchesCandidate(candidatePart, candId, candName)
+End Function
+
+Private Function NormalizeLookupText(ByVal rawValue As Variant) As String
+    Dim s As String
+    If IsError(rawValue) Then Exit Function
+    If IsNull(rawValue) Then Exit Function
+    s = CStr(rawValue)
+    s = Replace(s, Chr$(160), " ")
+    s = Replace(s, vbTab, " ")
+    s = Replace(s, vbCr, " ")
+    s = Replace(s, vbLf, " ")
+    s = Trim$(s)
+    Do While InStr(1, s, "  ", vbBinaryCompare) > 0
+        s = Replace(s, "  ", " ")
+    Loop
+    NormalizeLookupText = UCase$(s)
 End Function
 
 Private Sub EnsureLiveHours(ByRef liveHours As Object, ByVal candId As String, ByVal defaultHours As Double)
@@ -541,7 +676,7 @@ Private Function GetCumulativeHoursAtDate(ByVal wsSrc As Worksheet, ByVal g As V
     If hoursRow <= 0 Then Exit Function
 
     v = wsSrc.Cells(hoursRow, colDate).Value2
-    exactIsNumeric = (Len(Trim$(CStr(v))) > 0 And IsNumeric(v))
+    If Not IsError(v) Then exactIsNumeric = (Len(Trim$(CStr(v))) > 0 And IsNumeric(v))
     If exactIsNumeric Then
         exactHours = Round(CDbl(v), 0)
         If exactHours <> 0# Then
@@ -554,14 +689,15 @@ Private Function GetCumulativeHoursAtDate(ByVal wsSrc As Worksheet, ByVal g As V
     ' boundary, use the last known cumulative value before that date. The
     ' displayed hours must remain cumulative across months, while the planning
     ' loop may still count only newly added hours from here on.
-    searchStartCol = CLng(g(giDateColStart))
-    If searchStartCol <= 0 Then searchStartCol = CLng(g(giPlanColStart))
+    searchStartCol = 1
     For c = colDate - 1 To searchStartCol Step -1
         v = wsSrc.Cells(hoursRow, c).Value2
-        If Len(Trim$(CStr(v))) > 0 And IsNumeric(v) Then
-            previousHours = Round(CDbl(v), 0)
-            hasPreviousHours = True
-            Exit For
+        If Not IsError(v) Then
+            If Len(Trim$(CStr(v))) > 0 And IsNumeric(v) Then
+                previousHours = Round(CDbl(v), 0)
+                hasPreviousHours = True
+                Exit For
+            End If
         End If
     Next c
 
