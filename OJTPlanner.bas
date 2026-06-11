@@ -6,6 +6,7 @@ Private Const SETTINGS_GROUP_ROW As Long = 3
 Private Const SETTINGS_FIRST_GROUP_COL As Long = 3 'C
 Private Const GROUP_RESERVED_BLANK_ROWS As Long = 2
 Private Const GROUP_RESERVED_HOURS_ROWS As Long = 5
+Private Const CANDIDATE_PANEL_ROWS As Long = 4
 Private mPlanRowMap As Object
 Private mCandidatePanelIndex As Object
 
@@ -240,7 +241,7 @@ Private Function CollectAssignments( _
             If availableInstructors.Count > 0 Then
                 CollectAssignments = CollectAssignments + 1
                 HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, True
-                HighlightInstructorCandidates wsPlanOut, wsSrc, g, availableInstructors, colDate, True
+                HighlightInstructorCandidates wsPlanOut, wsSrc, g, rowId, availableInstructors, colDate, candPhase, True
                 RefreshPlanView wsPlanOut
                 If PromptAssignmentUnified(wsSrc, g, rowId, colDate, candPhase, availableInstructors, chosenInstr, shiftCode, liveHours, candId) Then
                     Dim addH As Double
@@ -248,17 +249,27 @@ Private Function CollectAssignments( _
                     IncrementLiveHours liveHours, candId, addH
                     Dim itm As Variant
                     Dim instrSrcRow As Long
-                    instrSrcRow = FindSourceRowById(wsSrc, g, chosenInstr)
-                    itm = CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, 2 + (colDate - CLng(g(giPlanColStart)) + 1), colDate, candId, rowId, chosenInstr, shiftCode, instrSrcRow, CDbl(liveHours(UCase$(candId))), addH, hoursRow, candPhase)
+                    Dim planCol As Long
+                    Dim candPlanRow As Long
+                    Dim instrPlanRow As Long
+                    Dim candOriginalValue As Variant
+                    Dim instrOriginalValue As Variant
+                    instrSrcRow = FindInstructorRowForAssignment(wsSrc, g, rowId, colDate, candPhase, chosenInstr)
+                    planCol = 2 + (colDate - CLng(g(giPlanColStart)) + 1)
+                    candPlanRow = GetPlanRowFromSource(CStr(g(giGroupName)), rowId, wsPlanOut, candId)
+                    instrPlanRow = GetPlanRowFromSource(CStr(g(giGroupName)), instrSrcRow, wsPlanOut, chosenInstr)
+                    If candPlanRow > 0 Then candOriginalValue = wsPlanOut.Cells(candPlanRow, planCol).Value2
+                    If instrPlanRow > 0 Then instrOriginalValue = wsPlanOut.Cells(instrPlanRow, planCol).Value2
+                    itm = CreateAssignmentItem(CStr(g(giGroupName)), wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2, planCol, colDate, candId, rowId, chosenInstr, shiftCode, instrSrcRow, CDbl(liveHours(UCase$(candId))), addH, hoursRow, candPhase, candOriginalValue, instrOriginalValue)
                     assignments.Add itm
                     ApplySingleAssignment wsPlanOut, itm
                     HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, False
-                    HighlightInstructorCandidates wsPlanOut, wsSrc, g, availableInstructors, colDate, False
+                    HighlightInstructorCandidates wsPlanOut, wsSrc, g, rowId, availableInstructors, colDate, candPhase, False
                     RefreshPlanView wsPlanOut
                     history.Add itm
                 ElseIf UCase$(chosenInstr) = "__BACK__" Then
                     HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, False
-                    HighlightInstructorCandidates wsPlanOut, wsSrc, g, availableInstructors, colDate, False
+                    HighlightInstructorCandidates wsPlanOut, wsSrc, g, rowId, availableInstructors, colDate, candPhase, False
                     If UndoLastAssignment(wsPlanOut, history, assignments, liveHours, undone) Then
                         If CStr(undone(1)) = CStr(g(giGroupName)) Then
                             colDate = CLng(undone(3))
@@ -273,11 +284,11 @@ Private Function CollectAssignments( _
                     GoTo NextCandidate
                 ElseIf UCase$(chosenInstr) = "__END__" Then
                     HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, False
-                    HighlightInstructorCandidates wsPlanOut, wsSrc, g, availableInstructors, colDate, False
+                    HighlightInstructorCandidates wsPlanOut, wsSrc, g, rowId, availableInstructors, colDate, candPhase, False
                     Exit Function
                 Else
                     HighlightPlanCell wsPlanOut, g, rowId, colDate, candId, False
-                    HighlightInstructorCandidates wsPlanOut, wsSrc, g, availableInstructors, colDate, False
+                    HighlightInstructorCandidates wsPlanOut, wsSrc, g, rowId, availableInstructors, colDate, candPhase, False
                 End If
             Else
                 noInstructorCandidates = noInstructorCandidates + 1
@@ -307,9 +318,11 @@ Private Function PromptAssignmentUnified(ByVal wsSrc As Worksheet, ByVal g As Va
     Next i
     msg = msg & vbCrLf & "Vnos: indeks;izmena (npr 1;A9)" & vbCrLf & "0 = preskoči, B = nazaj, K = končaj"
 
-    defaultShift = GetCurrentShiftInputHint(CStr(wsSrc.Cells(candRow, colDate).Value2))
+    defaultShift = GetCurrentShiftInputHint(wsSrc.Cells(candRow, colDate).Value2)
     inputText = Application.InputBox(msg, "OJT dodelitev", IIf(Len(defaultShift) > 0, "1;" & defaultShift, ""), Type:=2)
-    If inputText = False Then Exit Function
+    If VarType(inputText) = vbBoolean Then
+        If inputText = False Then Exit Function
+    End If
     inputText = UCase$(Trim$(CStr(inputText)))
     If inputText = "" Or inputText = "0" Then Exit Function
     If inputText = "B" Then chosenInstr = "__BACK__": Exit Function
@@ -326,8 +339,10 @@ Private Function PromptAssignmentUnified(ByVal wsSrc As Worksheet, ByVal g As Va
     PromptAssignmentUnified = True
 End Function
 
-Private Function GetCurrentShiftInputHint(ByVal rawValue As String) As String
+Private Function GetCurrentShiftInputHint(ByVal rawValue As Variant) As String
     Dim v As String
+    If IsError(rawValue) Then Exit Function
+    If IsNull(rawValue) Then Exit Function
     v = Trim$(rawValue)
     If Len(v) = 0 Then Exit Function
     If Right$(v, 1) = "s" Or Right$(v, 1) = "i" Then
@@ -349,7 +364,7 @@ Private Sub HighlightPlanCell(ByVal wsPlan As Worksheet, ByVal g As Variant, ByV
     End If
 End Sub
 
-Private Sub HighlightInstructorCandidates(ByVal wsPlan As Worksheet, ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal instrList As Collection, ByVal srcCol As Long, ByVal active As Boolean)
+Private Sub HighlightInstructorCandidates(ByVal wsPlan As Worksheet, ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candRow As Long, ByVal instrList As Collection, ByVal srcCol As Long, ByVal phase As Long, ByVal active As Boolean)
     Dim i As Long
     Dim instrId As String
     Dim srcRow As Long
@@ -359,7 +374,7 @@ Private Sub HighlightInstructorCandidates(ByVal wsPlan As Worksheet, ByVal wsSrc
     planCol = 2 + (srcCol - CLng(g(giPlanColStart)) + 1)
     For i = 1 To instrList.Count
         instrId = CStr(instrList(i))
-        srcRow = FindSourceRowById(wsSrc, g, instrId)
+        srcRow = FindInstructorRowForAssignment(wsSrc, g, candRow, srcCol, phase, instrId)
         If srcRow > 0 Then
             planRow = GetPlanRowFromSource(CStr(g(giGroupName)), srcRow, wsPlan, instrId)
             If planRow > 0 Then
@@ -372,6 +387,49 @@ Private Sub HighlightInstructorCandidates(ByVal wsPlan As Worksheet, ByVal wsSrc
         End If
     Next i
 End Sub
+
+Private Function FindInstructorRowForAssignment(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candRow As Long, ByVal colDate As Long, ByVal phase As Long, ByVal instrId As String) As Long
+    Dim r As Long
+    Dim v As String
+    Dim idCol As Long
+    Dim normalizedId As String
+
+    idCol = CLng(g(giIdCol))
+    normalizedId = NormalizeLookupText(instrId)
+    If Len(normalizedId) = 0 Then Exit Function
+
+    If phase <> 2 Then
+        r = candRow - 1
+        If RowHasAvailableInstructor(wsSrc, r, idCol, colDate, normalizedId) Then
+            FindInstructorRowForAssignment = r
+            Exit Function
+        End If
+
+        r = candRow + 1
+        If RowHasAvailableInstructor(wsSrc, r, idCol, colDate, normalizedId) Then
+            FindInstructorRowForAssignment = r
+            Exit Function
+        End If
+    End If
+
+    For r = CLng(g(giIdRowStart)) To CLng(g(giIdRowEnd))
+        If NormalizeLookupText(wsSrc.Cells(r, idCol).Value2) = normalizedId Then
+            v = NormalizeScheduleCode(wsSrc.Cells(r, colDate).Value2)
+            If IsInstructorAvailabilityCode(v) Then
+                FindInstructorRowForAssignment = r
+                Exit Function
+            End If
+        End If
+    Next r
+
+    FindInstructorRowForAssignment = FindSourceRowById(wsSrc, g, instrId)
+End Function
+
+Private Function RowHasAvailableInstructor(ByVal wsSrc As Worksheet, ByVal rowNumber As Long, ByVal idCol As Long, ByVal colDate As Long, ByVal normalizedInstrId As String) As Boolean
+    If rowNumber <= 0 Then Exit Function
+    If NormalizeLookupText(wsSrc.Cells(rowNumber, idCol).Value2) <> normalizedInstrId Then Exit Function
+    RowHasAvailableInstructor = IsInstructorAvailabilityCode(NormalizeScheduleCode(wsSrc.Cells(rowNumber, colDate).Value2))
+End Function
 
 Private Sub ApplySingleAssignment(ByVal wsPlan As Worksheet, ByVal a As Variant)
     Dim rowCand As Long, rowInstr As Long, rowHours As Long
@@ -403,20 +461,74 @@ Private Function GetPlanRowFromSource(ByVal groupName As String, ByVal srcRow As
 End Function
 
 Private Function UndoLastAssignment(ByVal wsPlan As Worksheet, ByRef history As Collection, ByRef assignments As Collection, ByRef liveHours As Object, ByRef undoneItem As Variant) As Boolean
-    Dim a As Variant, rowCand As Long, rowInstr As Long, rowHours As Long
+    Dim a As Variant, rowCand As Long, rowInstr As Long
+    Dim candOriginalValue As Variant
+    Dim instrOriginalValue As Variant
     If history.Count = 0 Then Exit Function
     a = history(history.Count)
     history.Remove history.Count
     If assignments.Count > 0 Then assignments.Remove assignments.Count
     rowCand = GetPlanRowFromSource(CStr(a(1)), CLng(a(6)), wsPlan, CStr(a(4)))
     rowInstr = GetPlanRowFromSource(CStr(a(1)), CLng(a(9)), wsPlan, CStr(a(7)))
-    rowHours = GetPlanRowFromSource(CStr(a(1)), CLng(a(12)), wsPlan, CStr(a(4)))
-    If rowCand > 0 Then wsPlan.Cells(rowCand, CLng(a(2))).ClearContents
-    If rowInstr > 0 Then wsPlan.Cells(rowInstr, CLng(a(2))).ClearContents
+
+    If UBound(a) >= 14 Then candOriginalValue = a(14)
+    If UBound(a) >= 15 Then instrOriginalValue = a(15)
+
+    If rowCand > 0 Then
+        wsPlan.Cells(rowCand, CLng(a(2))).Value2 = candOriginalValue
+        ClearCellComments wsPlan.Cells(rowCand, CLng(a(2)))
+    End If
+    If rowInstr > 0 Then
+        wsPlan.Cells(rowInstr, CLng(a(2))).Value2 = instrOriginalValue
+        ClearCellComments wsPlan.Cells(rowInstr, CLng(a(2)))
+    End If
     IncrementLiveHours liveHours, CStr(a(4)), -CDbl(a(11))
-    WriteCandidateHoursPanel wsPlan, CStr(a(1)), CStr(a(4)), CLng(a(2)), CDbl(liveHours(UCase$(CStr(a(4))))), CLng(a(13))
+    ClearCandidateHoursPanelEntry wsPlan, CStr(a(1)), CStr(a(4)), CLng(a(2)), CLng(a(13))
     undoneItem = a
     UndoLastAssignment = True
+End Function
+
+Private Sub ClearCandidateHoursPanelEntry(ByVal wsPlan As Worksheet, ByVal groupName As String, ByVal candId As String, ByVal planCol As Long, ByVal phase As Long)
+    Dim lastGroupRow As Long
+    Dim baseRow As Long
+    Dim rowHours As Long
+    Dim candidateIdx As Long
+
+    lastGroupRow = GetGroupLastPlanRow(groupName)
+    If lastGroupRow <= 0 Then Exit Sub
+
+    candidateIdx = EnsureCandidatePanelIndex(groupName, candId)
+    baseRow = lastGroupRow + 2 + (candidateIdx - 1) * CANDIDATE_PANEL_ROWS
+    rowHours = baseRow + phase
+
+    If rowHours > 0 And planCol > 0 Then wsPlan.Cells(rowHours, planCol).ClearContents
+    If Not CandidatePanelHasHours(wsPlan, baseRow) Then
+        wsPlan.Cells(baseRow, 1).Resize(CANDIDATE_PANEL_ROWS, 2).ClearContents
+    End If
+End Sub
+
+Private Function CandidatePanelHasHours(ByVal wsPlan As Worksheet, ByVal baseRow As Long) As Boolean
+    Dim lastCol As Long
+    Dim r As Long
+    Dim c As Long
+    Dim v As Variant
+
+    If baseRow <= 0 Then Exit Function
+
+    lastCol = wsPlan.UsedRange.Column + wsPlan.UsedRange.Columns.Count - 1
+    If lastCol < 3 Then Exit Function
+
+    For r = baseRow + 1 To baseRow + 3
+        For c = 3 To lastCol
+            v = wsPlan.Cells(r, c).Value2
+            If Not IsError(v) Then
+                If Len(Trim$(CStr(v))) > 0 Then
+                    CandidatePanelHasHours = True
+                    Exit Function
+                End If
+            End If
+        Next c
+    Next r
 End Function
 
 Private Sub WriteCandidateHoursPanel(ByVal wsPlan As Worksheet, ByVal groupName As String, ByVal candId As String, ByVal planCol As Long, ByVal hoursVal As Double, ByVal phase As Long)
@@ -429,7 +541,7 @@ Private Sub WriteCandidateHoursPanel(ByVal wsPlan As Worksheet, ByVal groupName 
     If lastGroupRow <= 0 Then Exit Sub
 
     candidateIdx = EnsureCandidatePanelIndex(groupName, candId)
-    baseRow = lastGroupRow + 2 + (candidateIdx - 1) * 3
+    baseRow = lastGroupRow + 2 + (candidateIdx - 1) * CANDIDATE_PANEL_ROWS
     rowName = baseRow
     rowHours = baseRow + phase
     rowCand = FindIdRow(wsPlan, candId)
@@ -646,6 +758,8 @@ Private Sub EnsureLiveHours(ByRef liveHours As Object, ByVal candId As String, B
 End Sub
 
 Private Function NormalizeScheduleCode(ByVal rawValue As Variant) As String
+    If IsError(rawValue) Then Exit Function
+    If IsNull(rawValue) Then Exit Function
     NormalizeScheduleCode = UCase$(Replace(Trim$(Replace(CStr(rawValue), Chr$(160), " ")), " ", ""))
 End Function
 
@@ -725,9 +839,11 @@ Private Function ShiftHoursForDate(ByVal wsSrc As Worksheet, ByVal g As Variant,
     r = CLng(g(giCandIdRowStart)) - 1
     If r > 0 Then
         v = wsSrc.Cells(r, colDate).Value2
-        If IsNumeric(v) Then
-            ShiftHoursForDate = CDbl(v)
-            Exit Function
+        If Not IsError(v) Then
+            If Len(Trim$(CStr(v))) > 0 And IsNumeric(v) Then
+                ShiftHoursForDate = CDbl(v)
+                Exit Function
+            End If
         End If
     End If
     ShiftHoursForDate = 8#
@@ -790,25 +906,51 @@ End Function
 
 Private Function GetAvailableInstructors(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal tripleStartRow As Long, ByVal colDate As Long, ByVal phase As Long) As Collection
     Dim c As New Collection
+    Dim seen As Object
     Dim r As Long
     Dim v As String
+    Set seen = CreateObject("Scripting.Dictionary")
 
     If phase = 2 Then
         For r = CLng(g(giIdRowStart)) To CLng(g(giIdRowEnd))
             v = NormalizeScheduleCode(wsSrc.Cells(r, colDate).Value2)
-            If v = "X1" Or v = "X2" Or v = "X3" Then
-                c.Add Trim$(CStr(wsSrc.Cells(r, CLng(g(giIdCol))).Value2))
+            If IsInstructorAvailabilityCode(v) Then
+                AddAvailableInstructor c, seen, wsSrc.Cells(r, CLng(g(giIdCol))).Value2
             End If
         Next r
     Else
         v = NormalizeScheduleCode(wsSrc.Cells(tripleStartRow, colDate).Value2)
-        If v = "X1" Or v = "X2" Or v = "X3" Then c.Add Trim$(CStr(wsSrc.Cells(tripleStartRow, CLng(g(giIdCol))).Value2))
+        If IsInstructorAvailabilityCode(v) Then
+            AddAvailableInstructor c, seen, wsSrc.Cells(tripleStartRow, CLng(g(giIdCol))).Value2
+        End If
 
         v = NormalizeScheduleCode(wsSrc.Cells(tripleStartRow + 2, colDate).Value2)
-        If v = "X1" Or v = "X2" Or v = "X3" Then c.Add Trim$(CStr(wsSrc.Cells(tripleStartRow + 2, CLng(g(giIdCol))).Value2))
+        If IsInstructorAvailabilityCode(v) Then
+            AddAvailableInstructor c, seen, wsSrc.Cells(tripleStartRow + 2, CLng(g(giIdCol))).Value2
+        End If
     End If
 
     Set GetAvailableInstructors = c
+End Function
+
+Private Sub AddAvailableInstructor(ByRef instrList As Collection, ByRef seen As Object, ByVal rawInstrId As Variant)
+    Dim instrId As String
+    Dim key As String
+
+    If IsError(rawInstrId) Then Exit Sub
+    If IsNull(rawInstrId) Then Exit Sub
+    instrId = Trim$(CStr(rawInstrId))
+    key = NormalizeLookupText(instrId)
+    If Len(key) = 0 Then Exit Sub
+
+    If Not seen.Exists(key) Then
+        seen.Add key, True
+        instrList.Add instrId
+    End If
+End Sub
+
+Private Function IsInstructorAvailabilityCode(ByVal normalizedCode As String) As Boolean
+    IsInstructorAvailabilityCode = (normalizedCode = "X1" Or normalizedCode = "X2" Or normalizedCode = "X3")
 End Function
 
 Private Function PromptAssignment(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candRow As Long, ByVal colDate As Long, ByVal phase As Long, ByVal instrList As Collection, ByRef chosenInstr As String, ByRef shiftCode As String) As Boolean
@@ -828,7 +970,9 @@ Private Function PromptAssignment(ByVal wsSrc As Worksheet, ByVal g As Variant, 
     msg = msg & vbCrLf & "Vpiši številko instruktorja ali 0 za brez dodelitve:"
 
     pick = Application.InputBox(msg, "OJT dodelitev", Type:=1)
-    If pick = False Then Exit Function
+    If VarType(pick) = vbBoolean Then
+        If pick = False Then Exit Function
+    End If
     If CLng(pick) = 0 Then Exit Function
 
     If CLng(pick) < 1 Or CLng(pick) > instrList.Count Then
@@ -837,7 +981,11 @@ Private Function PromptAssignment(ByVal wsSrc As Worksheet, ByVal g As Variant, 
     End If
 
     chosenInstr = instrList(CLng(pick))
-    shiftCode = UCase$(Trim$(CStr(Application.InputBox("Vpiši izmeno (npr A9):", "Izmena", Type:=2))))
+    pick = Application.InputBox("Vpiši izmeno (npr A9):", "Izmena", Type:=2)
+    If VarType(pick) = vbBoolean Then
+        If pick = False Then Exit Function
+    End If
+    shiftCode = UCase$(Trim$(CStr(pick)))
     If Len(shiftCode) = 0 Then Exit Function
 
     PromptAssignment = True
@@ -876,15 +1024,19 @@ Private Sub RefreshPlanView(ByVal ws As Worksheet)
 End Sub
 
 Private Sub AddOrReplaceComment(ByVal cell As Range, ByVal text As String)
+    ClearCellComments cell
+    cell.AddCommentThreaded text
+End Sub
+
+Private Sub ClearCellComments(ByVal cell As Range)
     On Error Resume Next
     cell.CommentThreaded.Delete
     cell.ClearComments
     On Error GoTo 0
-    cell.AddCommentThreaded text
 End Sub
 
-Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate As Variant, ByVal colDate As Long, ByVal srcColDate As Long, ByVal candId As String, ByVal candRow As Long, ByVal instrId As String, ByVal shiftCode As String, ByVal tripleStart As Long, ByVal liveHoursAfter As Double, ByVal hoursAdded As Double, ByVal hoursRow As Long, ByVal candPhase As Long) As Variant
-    Dim a(1 To 13) As Variant
+Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate As Variant, ByVal colDate As Long, ByVal srcColDate As Long, ByVal candId As String, ByVal candRow As Long, ByVal instrId As String, ByVal shiftCode As String, ByVal tripleStart As Long, ByVal liveHoursAfter As Double, ByVal hoursAdded As Double, ByVal hoursRow As Long, ByVal candPhase As Long, ByVal candOriginalValue As Variant, ByVal instrOriginalValue As Variant) As Variant
+    Dim a(1 To 15) As Variant
     a(1) = groupName
     a(2) = colDate
     a(3) = srcColDate
@@ -898,6 +1050,8 @@ Private Function CreateAssignmentItem(ByVal groupName As String, ByVal planDate 
     a(11) = hoursAdded
     a(12) = hoursRow
     a(13) = candPhase
+    a(14) = candOriginalValue
+    a(15) = instrOriginalValue
     CreateAssignmentItem = a
 End Function
 
@@ -1010,6 +1164,9 @@ Private Function CopyGroupToPlan(ByVal wsSrc As Worksheet, ByVal wsPlan As Works
         wsPlan.Cells(outRow + rowCount + 2, 1).Resize(hrRows, 1).Value2 = wsSrc.Range(wsSrc.Cells(hrS, idCol), wsSrc.Cells(hrE, idCol)).Value2
         wsPlan.Cells(outRow + rowCount + 2, 2).Resize(hrRows, 1).Value2 = wsSrc.Range(wsSrc.Cells(hrS, nameCol), wsSrc.Cells(hrE, nameCol)).Value2
         wsPlan.Cells(outRow + rowCount + 2, 3).Resize(hrRows, planCols).Value2 = wsSrc.Range(wsSrc.Cells(hrS, planStartCol), wsSrc.Cells(hrE, planEndCol)).Value2
+        For r = hrS To hrE
+            mPlanRowMap(CStr(g(giGroupName)) & "|" & CStr(r)) = outRow + rowCount + 2 + (r - hrS)
+        Next r
         wsPlan.Cells(outRow + rowCount + 2, 1).Resize(hrRows, planCols + 2).Font.Bold = True
         wsPlan.Cells(outRow + rowCount + 2, 1).Resize(hrRows, planCols + 2).Font.Color = RGB(255, 0, 0)
         actualEndRow = outRow + rowCount + hrRows + GROUP_RESERVED_BLANK_ROWS + 1
