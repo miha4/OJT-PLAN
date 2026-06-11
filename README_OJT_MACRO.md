@@ -23,7 +23,9 @@
 - `Planiraj_OJT` najprej osveži prikaz vseh skupin, nato planira samo aktivne skupine (`PLANIRAJ = DA`) po zaporedju stolpcev v nastavitvah.
 - Če aktivna skupina nima nobenega možnega predloga, zaključno okno pokaže diagnostiko po skupinah: koliko `Xs` je našel, koliko kandidatov nima vrstice ur in koliko jih nima prostega inštruktorja.
 - Vpisuje v `OJT Plan`, ob vsakem zagonu se list počisti.
+- Če list uporablja oznake `KANDIDAT #...`, makro planira samo te vrstice; `Xs` pri inštruktorju oziroma osebi, ki se šola v drugi skupini, se v tej skupini ne obravnava kot kandidat.
 - Seznam možnih inštruktorjev je dedupliciran po ID-ju, zato se isti mentor ne ponudi dvakrat, tudi če je prisoten v splošnem seznamu in še v primarni/sekundarni vrstici kandidata.
+- Mentor, ki je v istem zagonu planiranja že dodeljen na isti datum, se pri naslednjih kandidatih na ta datum ne ponudi več.
 - Vnos `B` razveljavi zadnjo dodelitev: vrne prvotne izmene v celicah kandidata in inštruktorja, odstrani komentarje makra, odšteje dodane ure in pobriše vpis ur v panelu.
 
 - Pri izpisu `PREDVIDENE URE` makro uporablja dejansko kumulativno vrstico ur (`URE (kopija)` oziroma nastavljeno območje `ZAČETNA/KONČNA VRSTICA UR`). Vrstico ur prepozna tudi po oznaki `URE <ime kandidata>`, zato navadne urniške vrstice kandidata ne zamenja več za kumulativne ure. Če je celica na izbrani datum prazna ali je na začetku novega mesečnega bloka relativno `0`, uporabi zadnjo znano kumulativno vrednost levo od tega datuma, tudi če je ta pred nastavljenim začetkom trenutnega bloka.

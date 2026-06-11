@@ -204,6 +204,7 @@ Private Function CollectAssignments( _
     Dim undone As Variant
     Dim candName As String
     Dim hoursRowCache As Object
+    Dim requireCandidateMarker As Boolean
 
     rowStart = CLng(g(giIdRowStart))
     rowEnd = CLng(g(giIdRowEnd))
@@ -212,6 +213,7 @@ Private Function CollectAssignments( _
     rowId = rowStart
     colDate = colStart
     Set hoursRowCache = CreateObject("Scripting.Dictionary")
+    requireCandidateMarker = HasCandidateTrainingRows(wsSrc, g)
 
     Do While colDate <= colEnd
         If rowId > rowEnd Then
@@ -219,6 +221,10 @@ Private Function CollectAssignments( _
             colDate = colDate + 1
             GoTo ContinueLoop
         End If
+
+            If requireCandidateMarker Then
+                If Not IsCandidateTrainingRow(wsSrc, g, rowId) Then GoTo NextCandidate
+            End If
 
             cellValue = NormalizeScheduleCode(wsSrc.Cells(rowId, colDate).Value2)
             If cellValue <> "XS" Then GoTo NextCandidate
@@ -237,7 +243,7 @@ Private Function CollectAssignments( _
             Else
                 candPhase = ResolvePhaseLive(wsSrc, g, hoursRow, colDate, thresholds, liveHours, candId)
             End If
-            Set availableInstructors = GetAvailableInstructors(wsSrc, g, rowId - 1, colDate, candPhase)
+            Set availableInstructors = GetAvailableInstructors(wsSrc, g, rowId - 1, colDate, candPhase, assignments)
 
             If availableInstructors.Count > 0 Then
                 CollectAssignments = CollectAssignments + 1
@@ -432,6 +438,30 @@ Private Function RowHasAvailableInstructor(ByVal wsSrc As Worksheet, ByVal rowNu
     RowHasAvailableInstructor = IsInstructorAvailabilityCode(NormalizeScheduleCode(wsSrc.Cells(rowNumber, colDate).Value2))
 End Function
 
+Private Function HasCandidateTrainingRows(ByVal wsSrc As Worksheet, ByVal g As Variant) As Boolean
+    Dim r As Long
+
+    For r = CLng(g(giIdRowStart)) To CLng(g(giIdRowEnd))
+        If IsCandidateTrainingRow(wsSrc, g, r) Then
+            HasCandidateTrainingRows = True
+            Exit Function
+        End If
+    Next r
+End Function
+
+Private Function IsCandidateTrainingRow(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal rowNumber As Long) As Boolean
+    Dim marker As String
+    Dim roleCol As Long
+
+    If rowNumber <= 0 Then Exit Function
+
+    roleCol = CLng(g(giIdCol)) + 2
+    marker = NormalizeLookupText(wsSrc.Cells(rowNumber, roleCol).Value2)
+    If Len(marker) = 0 Then Exit Function
+
+    IsCandidateTrainingRow = (Left$(marker, 8) = "KANDIDAT")
+End Function
+
 Private Sub ApplySingleAssignment(ByVal wsPlan As Worksheet, ByVal a As Variant)
     Dim rowCand As Long, rowInstr As Long, rowHours As Long
     rowCand = GetPlanRowFromSource(CStr(a(1)), CLng(a(6)), wsPlan, CStr(a(4)))
@@ -451,6 +481,8 @@ End Sub
 
 Private Function GetPlanRowFromSource(ByVal groupName As String, ByVal srcRow As Long, ByVal wsPlan As Worksheet, ByVal fallbackId As String) As Long
     Dim k As String
+    Dim rowInGroup As Long
+
     If Not mPlanRowMap Is Nothing Then
         k = groupName & "|" & CStr(srcRow)
         If mPlanRowMap.Exists(k) Then
@@ -458,7 +490,35 @@ Private Function GetPlanRowFromSource(ByVal groupName As String, ByVal srcRow As
             Exit Function
         End If
     End If
+
+    rowInGroup = FindIdRowInGroup(wsPlan, groupName, fallbackId)
+    If rowInGroup > 0 Then
+        GetPlanRowFromSource = rowInGroup
+        Exit Function
+    End If
+
     GetPlanRowFromSource = FindIdRow(wsPlan, fallbackId)
+End Function
+
+Private Function FindIdRowInGroup(ByVal wsPlan As Worksheet, ByVal groupName As String, ByVal idValue As String) As Long
+    Dim firstRow As Long
+    Dim lastRow As Long
+    Dim r As Long
+    Dim targetId As String
+
+    targetId = NormalizeLookupText(idValue)
+    If Len(targetId) = 0 Then Exit Function
+
+    firstRow = GetGroupFirstPlanRow(groupName)
+    lastRow = GetGroupLastPlanRow(groupName)
+    If firstRow <= 0 Or lastRow < firstRow Then Exit Function
+
+    For r = firstRow To lastRow
+        If NormalizeLookupText(wsPlan.Cells(r, 1).Value2) = targetId Then
+            FindIdRowInGroup = r
+            Exit Function
+        End If
+    Next r
 End Function
 
 Private Function UndoLastAssignment(ByVal wsPlan As Worksheet, ByRef history As Collection, ByRef assignments As Collection, ByRef liveHours As Object, ByRef undoneItem As Variant) As Boolean
@@ -580,6 +640,27 @@ Private Function GetGroupLastPlanRow(ByVal groupName As String) As Long
             If StrComp(grp, groupName, vbTextCompare) = 0 Then
                 If CLng(mPlanRowMap(k)) > GetGroupLastPlanRow Then
                     GetGroupLastPlanRow = CLng(mPlanRowMap(k))
+                End If
+            End If
+        End If
+    Next k
+End Function
+
+Private Function GetGroupFirstPlanRow(ByVal groupName As String) As Long
+    Dim k As Variant
+    Dim p As Long
+    Dim grp As String
+    Dim mappedRow As Long
+
+    If mPlanRowMap Is Nothing Then Exit Function
+    For Each k In mPlanRowMap.Keys
+        p = InStr(1, CStr(k), "|", vbTextCompare)
+        If p > 0 Then
+            grp = Left$(CStr(k), p - 1)
+            If StrComp(grp, groupName, vbTextCompare) = 0 Then
+                mappedRow = CLng(mPlanRowMap(k))
+                If GetGroupFirstPlanRow = 0 Or mappedRow < GetGroupFirstPlanRow Then
+                    GetGroupFirstPlanRow = mappedRow
                 End If
             End If
         End If
@@ -905,36 +986,38 @@ Private Function ResolvePhaseFromHours(ByVal totalHours As Double, ByVal thresho
     End If
 End Function
 
-Private Function GetAvailableInstructors(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal tripleStartRow As Long, ByVal colDate As Long, ByVal phase As Long) As Collection
+Private Function GetAvailableInstructors(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal tripleStartRow As Long, ByVal colDate As Long, ByVal phase As Long, ByVal assignments As Collection) As Collection
     Dim c As New Collection
     Dim seen As Object
     Dim r As Long
     Dim v As String
+    Dim planDate As Variant
     Set seen = CreateObject("Scripting.Dictionary")
+    planDate = wsSrc.Cells(CLng(g(giDateRow)), colDate).Value2
 
     If phase = 2 Then
         For r = CLng(g(giIdRowStart)) To CLng(g(giIdRowEnd))
             v = NormalizeScheduleCode(wsSrc.Cells(r, colDate).Value2)
             If IsInstructorAvailabilityCode(v) Then
-                AddAvailableInstructor c, seen, wsSrc.Cells(r, CLng(g(giIdCol))).Value2
+                AddAvailableInstructor c, seen, assignments, planDate, wsSrc.Cells(r, CLng(g(giIdCol))).Value2
             End If
         Next r
     Else
         v = NormalizeScheduleCode(wsSrc.Cells(tripleStartRow, colDate).Value2)
         If IsInstructorAvailabilityCode(v) Then
-            AddAvailableInstructor c, seen, wsSrc.Cells(tripleStartRow, CLng(g(giIdCol))).Value2
+            AddAvailableInstructor c, seen, assignments, planDate, wsSrc.Cells(tripleStartRow, CLng(g(giIdCol))).Value2
         End If
 
         v = NormalizeScheduleCode(wsSrc.Cells(tripleStartRow + 2, colDate).Value2)
         If IsInstructorAvailabilityCode(v) Then
-            AddAvailableInstructor c, seen, wsSrc.Cells(tripleStartRow + 2, CLng(g(giIdCol))).Value2
+            AddAvailableInstructor c, seen, assignments, planDate, wsSrc.Cells(tripleStartRow + 2, CLng(g(giIdCol))).Value2
         End If
     End If
 
     Set GetAvailableInstructors = c
 End Function
 
-Private Sub AddAvailableInstructor(ByRef instrList As Collection, ByRef seen As Object, ByVal rawInstrId As Variant)
+Private Sub AddAvailableInstructor(ByRef instrList As Collection, ByRef seen As Object, ByVal assignments As Collection, ByVal planDate As Variant, ByVal rawInstrId As Variant)
     Dim instrId As String
     Dim key As String
 
@@ -943,12 +1026,48 @@ Private Sub AddAvailableInstructor(ByRef instrList As Collection, ByRef seen As 
     instrId = Trim$(CStr(rawInstrId))
     key = NormalizeLookupText(instrId)
     If Len(key) = 0 Then Exit Sub
+    If InstructorAlreadyAssignedOnDate(assignments, instrId, planDate) Then Exit Sub
 
     If Not seen.Exists(key) Then
         seen.Add key, True
         instrList.Add instrId
     End If
 End Sub
+
+Private Function InstructorAlreadyAssignedOnDate(ByVal assignments As Collection, ByVal instrId As String, ByVal planDate As Variant) As Boolean
+    Dim i As Long
+    Dim a As Variant
+    Dim assignedInstr As String
+
+    If assignments Is Nothing Then Exit Function
+
+    For i = 1 To assignments.Count
+        a = assignments(i)
+        assignedInstr = CStr(a(7))
+        If NormalizeLookupText(assignedInstr) = NormalizeLookupText(instrId) Then
+            If SamePlanningDate(a(5), planDate) Then
+                InstructorAlreadyAssignedOnDate = True
+                Exit Function
+            End If
+        End If
+    Next i
+End Function
+
+Private Function SamePlanningDate(ByVal leftDate As Variant, ByVal rightDate As Variant) As Boolean
+    On Error GoTo SafeExit
+
+    If IsError(leftDate) Or IsError(rightDate) Then Exit Function
+
+    If IsNumeric(leftDate) And IsNumeric(rightDate) Then
+        SamePlanningDate = (CLng(CDbl(leftDate)) = CLng(CDbl(rightDate)))
+    ElseIf IsDate(leftDate) And IsDate(rightDate) Then
+        SamePlanningDate = (DateValue(CDate(leftDate)) = DateValue(CDate(rightDate)))
+    Else
+        SamePlanningDate = (NormalizeLookupText(leftDate) = NormalizeLookupText(rightDate))
+    End If
+
+SafeExit:
+End Function
 
 Private Function IsInstructorAvailabilityCode(ByVal normalizedCode As String) As Boolean
     IsInstructorAvailabilityCode = (normalizedCode = "X1" Or normalizedCode = "X2" Or normalizedCode = "X3")
