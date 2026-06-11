@@ -481,10 +481,24 @@ Private Function FindSourceRowById(ByVal wsSrc As Worksheet, ByVal g As Variant,
 End Function
 
 Private Function FindHoursRowById(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candId As String) As Long
+    FindHoursRowById = FindHoursRowByIdInRange(wsSrc, g, candId, CLng(g(giHoursRowStart)), CLng(g(giHoursRowEnd)))
+    If FindHoursRowById > 0 Then Exit Function
+
+    ' Backward compatibility: older settings used the candidate-ID range for the
+    ' cumulative-hours rows. Prefer the explicit hours range above because those
+    ' are the rows copied to the red "URE (kopija)" section and contain the real
+    ' cumulative total from previous months.
+    FindHoursRowById = FindHoursRowByIdInRange(wsSrc, g, candId, CLng(g(giCandIdRowStart)), CLng(g(giCandIdRowEnd)))
+End Function
+
+Private Function FindHoursRowByIdInRange(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal candId As String, ByVal rowStart As Long, ByVal rowEnd As Long) As Long
     Dim r As Long
-    For r = CLng(g(giCandIdRowStart)) To CLng(g(giCandIdRowEnd))
+
+    If rowStart <= 0 Or rowEnd < rowStart Then Exit Function
+
+    For r = rowStart To rowEnd
         If UCase$(Trim$(CStr(wsSrc.Cells(r, CLng(g(giIdCol))).Value2))) = UCase$(candId) Then
-            FindHoursRowById = r
+            FindHoursRowByIdInRange = r
             Exit Function
         End If
     Next r
@@ -507,12 +521,59 @@ Private Function ResolvePhaseLive(ByVal wsSrc As Worksheet, ByVal g As Variant, 
 
     key = UCase$(candId)
     If Not liveHours.Exists(key) Then
-        baseHours = Round(CDbl(Val(wsSrc.Cells(candRow, colDate).Value2)), 0)
+        baseHours = GetCumulativeHoursAtDate(wsSrc, g, candRow, colDate)
         liveHours.Add key, baseHours
     End If
 
     reserveHours = ShiftHoursForDate(wsSrc, g, colDate)
     ResolvePhaseLive = ResolvePhaseFromHours(CDbl(liveHours(key)), thresholds, GetTrackType(CStr(g(giGroupName))), reserveHours)
+End Function
+
+Private Function GetCumulativeHoursAtDate(ByVal wsSrc As Worksheet, ByVal g As Variant, ByVal hoursRow As Long, ByVal colDate As Long) As Double
+    Dim searchStartCol As Long
+    Dim exactHours As Double
+    Dim exactIsNumeric As Boolean
+    Dim previousHours As Double
+    Dim hasPreviousHours As Boolean
+    Dim c As Long
+    Dim v As Variant
+
+    If hoursRow <= 0 Then Exit Function
+
+    v = wsSrc.Cells(hoursRow, colDate).Value2
+    exactIsNumeric = (Len(Trim$(CStr(v))) > 0 And IsNumeric(v))
+    If exactIsNumeric Then
+        exactHours = Round(CDbl(v), 0)
+        If exactHours <> 0# Then
+            GetCumulativeHoursAtDate = exactHours
+            Exit Function
+        End If
+    End If
+
+    ' If the selected date cell is blank or shows a relative 0 at the planning
+    ' boundary, use the last known cumulative value before that date. The
+    ' displayed hours must remain cumulative across months, while the planning
+    ' loop may still count only newly added hours from here on.
+    searchStartCol = CLng(g(giDateColStart))
+    If searchStartCol <= 0 Then searchStartCol = CLng(g(giPlanColStart))
+    For c = colDate - 1 To searchStartCol Step -1
+        v = wsSrc.Cells(hoursRow, c).Value2
+        If Len(Trim$(CStr(v))) > 0 And IsNumeric(v) Then
+            previousHours = Round(CDbl(v), 0)
+            hasPreviousHours = True
+            Exit For
+        End If
+    Next c
+
+    If exactIsNumeric Then
+        If exactHours = 0# And hasPreviousHours And previousHours > 0# Then
+            GetCumulativeHoursAtDate = previousHours
+        Else
+            GetCumulativeHoursAtDate = exactHours
+        End If
+    ElseIf hasPreviousHours Then
+        GetCumulativeHoursAtDate = previousHours
+    End If
 End Function
 
 Private Sub IncrementLiveHours(ByRef liveHours As Object, ByVal candId As String, ByVal addHours As Double)

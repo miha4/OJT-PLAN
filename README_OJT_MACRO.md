@@ -12,7 +12,7 @@
 - Neobstoječ list skupine v trackerju: pričakuj napako Workbooks/Worksheet.
 - Kandidat brez `Xs`: brez popupa.
 - Kandidat `Xs`, oba inštruktorja brez X1/X2/X3: brez popupa, v zaključnem opozorilu se izpiše diagnostika `brez inštruktorjev`.
-- Kandidat `Xs`, ki nima vrstice ur v območju ID-jev kandidatov: makro ga ne preskoči več, ampak nadaljuje z 0 začetnimi urami in to zabeleži v diagnostiki.
+- Kandidat `Xs`, ki nima vrstice ur v območju kumulativnih ur: makro ga ne preskoči več, ampak nadaljuje z 0 začetnimi urami in to zabeleži v diagnostiki.
 - Faza 1->2 na meji: zaradi +1 izmene rezerve ostane še v fazi 1.
 - Vnos 0 v popupu: preskoči dodelitev.
 - Prazen vnos izmene: preskoči dodelitev.
@@ -23,4 +23,6 @@
 - `Planiraj_OJT` najprej osveži prikaz vseh skupin, nato planira samo aktivne skupine (`PLANIRAJ = DA`) po zaporedju stolpcev v nastavitvah.
 - Če aktivna skupina nima nobenega možnega predloga, zaključno okno pokaže diagnostiko po skupinah: koliko `Xs` je našel, koliko kandidatov nima vrstice ur in koliko jih nima prostega inštruktorja.
 - Vpisuje v `OJT Plan`, ob vsakem zagonu se list počisti.
+
+- Pri izpisu `PREDVIDENE URE` makro uporablja dejansko kumulativno vrstico ur (`URE (kopija)` oziroma nastavljeno območje `ZAČETNA/KONČNA VRSTICA UR`). Če je celica na izbrani datum prazna ali je na začetku planiranja relativno `0`, uporabi zadnjo znano kumulativno vrednost levo od tega datuma.
 - Komentarji se dodajo kot threaded comments.
