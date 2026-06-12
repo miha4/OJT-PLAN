@@ -29,4 +29,4 @@
 - Vnos `B` razveljavi zadnjo dodelitev: vrne prvotne izmene v celicah kandidata in inštruktorja, odstrani komentarje makra, odšteje dodane ure in pobriše vpis ur v panelu.
 
 - Pri izpisu `PREDVIDENE URE` makro uporablja dejansko kumulativno vrstico ur (`URE (kopija)` oziroma nastavljeno območje `ZAČETNA/KONČNA VRSTICA UR`). Vrstico ur prepozna tudi po oznaki `URE <ime kandidata>`, zato navadne urniške vrstice kandidata ne zamenja več za kumulativne ure. Če je celica na izbrani datum prazna ali je na začetku novega mesečnega bloka relativno `0`, uporabi zadnjo znano kumulativno vrednost levo od tega datuma, tudi če je ta pred nastavljenim začetkom trenutnega bloka.
-- Komentarji se dodajo kot threaded comments.
+- Komentarji se dodajo kot threaded comments v formatu `OJT|id_druge_osebe|priimek_ime_druge_osebe`.

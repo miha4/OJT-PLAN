@@ -469,11 +469,11 @@ Private Sub ApplySingleAssignment(ByVal wsPlan As Worksheet, ByVal a As Variant)
     rowHours = GetPlanRowFromSource(CStr(a(1)), CLng(a(12)), wsPlan, CStr(a(4)))
     If rowCand > 0 Then
         wsPlan.Cells(rowCand, CLng(a(2))).Value2 = CStr(a(8)) & "s"
-        AddOrReplaceComment wsPlan.Cells(rowCand, CLng(a(2))), "OJT: " & CStr(a(7)) & " - " & CStr(a(4)) & " | predvidene ure: " & CStr(a(10))
+        AddOrReplaceComment wsPlan.Cells(rowCand, CLng(a(2))), BuildOjtComment(CStr(a(7)), GetPlanPersonName(wsPlan, rowInstr))
     End If
     If rowInstr > 0 Then
         wsPlan.Cells(rowInstr, CLng(a(2))).Value2 = CStr(a(8)) & "i"
-        AddOrReplaceComment wsPlan.Cells(rowInstr, CLng(a(2))), "OJT: " & CStr(a(7)) & " - " & CStr(a(4))
+        AddOrReplaceComment wsPlan.Cells(rowInstr, CLng(a(2))), BuildOjtComment(CStr(a(4)), GetPlanPersonName(wsPlan, rowCand))
     End If
     WriteCandidateHoursPanel wsPlan, CStr(a(1)), CStr(a(4)), CLng(a(2)), CDbl(a(10)), CLng(a(13))
 End Sub
@@ -1123,12 +1123,12 @@ Private Sub WriteAssignments(ByVal wsPlan As Worksheet, ByVal assignments As Col
 
         If rowCand > 0 Then
             wsPlan.Cells(rowCand, CLng(a(2))).Value2 = CStr(a(8)) & "s"
-            AddOrReplaceComment wsPlan.Cells(rowCand, CLng(a(2))), "OJT: " & CStr(a(7)) & " - " & CStr(a(4)) & " | predvidene ure: " & CStr(a(10))
+            AddOrReplaceComment wsPlan.Cells(rowCand, CLng(a(2))), BuildOjtComment(CStr(a(7)), GetPlanPersonName(wsPlan, rowInstr))
         End If
 
         If rowInstr > 0 Then
             wsPlan.Cells(rowInstr, CLng(a(2))).Value2 = CStr(a(8)) & "i"
-            AddOrReplaceComment wsPlan.Cells(rowInstr, CLng(a(2))), "OJT: " & CStr(a(7)) & " - " & CStr(a(4))
+            AddOrReplaceComment wsPlan.Cells(rowInstr, CLng(a(2))), BuildOjtComment(CStr(a(4)), GetPlanPersonName(wsPlan, rowCand))
         End If
     Next i
 End Sub
@@ -1147,6 +1147,61 @@ Private Sub AddOrReplaceComment(ByVal cell As Range, ByVal text As String)
     ClearCellComments cell
     cell.AddCommentThreaded text
 End Sub
+
+Private Function BuildOjtComment(ByVal relatedId As String, ByVal relatedFullName As Variant) As String
+    BuildOjtComment = "OJT|" & NormalizeCommentText(relatedId) & "|" & FormatSurnameName(relatedFullName)
+End Function
+
+Private Function GetPlanPersonName(ByVal wsPlan As Worksheet, ByVal planRow As Long) As Variant
+    If planRow <= 0 Then
+        GetPlanPersonName = vbNullString
+        Exit Function
+    End If
+
+    GetPlanPersonName = wsPlan.Cells(planRow, 2).Value2
+End Function
+
+Private Function FormatSurnameName(ByVal rawName As Variant) As String
+    Dim nameText As String
+    Dim parts() As String
+    Dim i As Long
+    Dim formatted As String
+
+    nameText = NormalizeCommentText(rawName)
+    If Len(nameText) = 0 Then Exit Function
+
+    parts = Split(nameText, " ")
+    If UBound(parts) = 0 Then
+        FormatSurnameName = parts(0)
+        Exit Function
+    End If
+
+    For i = 1 To UBound(parts)
+        If Len(formatted) > 0 Then formatted = formatted & "_"
+        formatted = formatted & parts(i)
+    Next i
+    FormatSurnameName = formatted & "_" & parts(0)
+End Function
+
+Private Function NormalizeCommentText(ByVal rawValue As Variant) As String
+    Dim s As String
+
+    If IsError(rawValue) Then Exit Function
+    If IsNull(rawValue) Then Exit Function
+
+    s = CStr(rawValue)
+    s = Replace(s, Chr$(160), " ")
+    s = Replace(s, vbTab, " ")
+    s = Replace(s, vbCr, " ")
+    s = Replace(s, vbLf, " ")
+    s = Trim$(s)
+
+    Do While InStr(1, s, "  ", vbBinaryCompare) > 0
+        s = Replace(s, "  ", " ")
+    Loop
+
+    NormalizeCommentText = s
+End Function
 
 Private Sub ClearCellComments(ByVal cell As Range)
     On Error Resume Next
